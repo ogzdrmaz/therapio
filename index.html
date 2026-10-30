@@ -201,7 +201,8 @@ html,body{width:100%;max-width:100%;overflow-x:hidden}
  <div class="field"><label>Danışan adı soyadı</label><input id="clientName" placeholder="Danışan adı soyadı"></div>
  <div class="field"><label>Danışan türü</label><select id="clientSource"><option value="R">Reklam</option><option value="B">Bireysel</option><option value="K">Kurum</option></select></div>
  <div class="two"><div class="field"><label>Güncel seans ücreti (₺)</label><input id="clientFee" type="number" min="0" step="50"></div>
- <div class="field"><label>Kurum kesinti oranı (%)</label><input id="clientRate" type="number" min="0" max="100" step="1"></div></div>
+ <div class="field"><label>Kurum kesinti türü</label><select id="clientRateMode"><option value="percent">Yüzde (%)</option><option value="fixed">Sabit tutar (₺)</option></select></div></div>
+ <div class="field"><label id="clientRateLabel">Kurum kesinti oranı (%)</label><input id="clientRate" type="number" min="0" max="100" step="1"></div>
  <div class="note" id="clientNetPreview">Sana kalan: ₺0</div>
  <div class="modal-actions"><button class="soft-btn" id="clientCancel">Vazgeç</button><button class="primary-btn" id="clientSave">Profili kaydet</button></div>
 </div></div>
@@ -343,6 +344,7 @@ function openClientModal(name){
  $('clientOriginalName').value=c?.name||'';$('clientName').value=c?.name||'';$('clientSource').value=c?.source||'K';$('clientFee').value=c?.fee??'';$('clientRate').value=c?.rate??0;$('clientRateMode').value=c?.rateMode||'percent';
  $('clientRate').disabled=$('clientSource').value!=='K';$('clientRateMode').disabled=$('clientSource').value!=='K';updateClientRateLabel();updateClientPreview();$('clientModalBg').classList.add('open');
 }
+function updateClientRateLabel(){const mode=$('clientRateMode').value;const label=$('clientRateLabel');label.textContent=mode==='fixed'?'Kurum kesintisi (₺)':'Kurum kesinti oranı (%)';$('clientRate').max=mode==='percent'?'100':'';$('clientRate').step=mode==='fixed'?'50':'1'}
 function updateClientPreview(){const fee=Number($('clientFee').value||0),client={rate:Number($('clientRate').value||0),rateMode:$('clientRateMode').value},cut=$('clientSource').value==='K'?clientShare(fee,client):0;$('clientNetPreview').textContent=`Yeni seanslarda sana kalan: ${money(fee-cut)} · Kurum kesintisi: ${money(cut)}`}
 $('addClientBtn').onclick=()=>openClientModal(null);$('clientCancel').onclick=()=>$('clientModalBg').classList.remove('open');$('clientModalBg').onclick=e=>{if(e.target===$('clientModalBg'))$('clientModalBg').classList.remove('open')};
 ['clientFee','clientRate'].forEach(id=>$(id).oninput=updateClientPreview);$('clientRateMode').onchange=()=>{updateClientRateLabel();updateClientPreview()};
@@ -676,6 +678,8 @@ calendarButton.onclick = () => {
     // Bu satır doğrudan dokunma olayında çalışır; arada await yoktur.
     calendarButton.textContent = 'Google açılıyor…';
     try {
+      if (!window.google || !googleTokenClient || !googleApiReady) throw new Error('Google bağlantısı henüz hazır değil. Sayfayı yenileyip tekrar deneyin.');
+      calendarStatus('Google yetkilendirme penceresi açılıyor…');
       googleTokenClient.requestAccessToken({ prompt: 'consent' });
     } catch (err) {
       calendarButton.textContent = 'Tekrar dene ↻';
