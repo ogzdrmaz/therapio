@@ -75,6 +75,12 @@ html,body{width:100%;max-width:100%;overflow-x:hidden}
 .app{width:100%;max-width:1050px;min-width:0;padding-left:clamp(12px,3vw,25px);padding-right:clamp(12px,3vw,25px)}
 .bottom-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;width:100%;padding-left:8px;padding-right:8px}
 .nav-btn{width:100%;min-width:0;white-space:nowrap}
+
+.period-switch{display:flex;gap:4px;background:var(--paper);border:1px solid var(--line);padding:4px;border-radius:13px;align-self:start;width:max-content;margin:0 0 9px}
+.period-choice{border:0;background:transparent;color:var(--muted);border-radius:9px;padding:8px 14px;font-size:10px;font-weight:750}
+.period-choice.active{background:var(--accent-soft);color:var(--accent-dark)}
+.client-overview{grid-template-columns:1fr 1.45fr}
+@media(max-width:520px){.client-overview{grid-template-columns:1fr}.period-switch{margin-bottom:8px}}
 .client-overview{display:grid;grid-template-columns:1fr 1.45fr;gap:10px;margin:15px 0 12px}
 .active-total{background:var(--accent-soft);border-radius:18px;padding:15px 16px;display:flex;justify-content:space-between;align-items:center;min-width:0}
 .active-total>div{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
@@ -156,8 +162,9 @@ html,body{width:100%;max-width:100%;overflow-x:hidden}
 
 <section class="page" id="clientsPage">
  <h1>Danışanlar</h1><p class="lead">Danışan profillerini, güncel ücretlerini ve kurum oranlarını yönet.</p>
+ <div class="period-switch" role="group" aria-label="Danışan dönemi"><button type="button" class="period-choice active" data-client-period="week">Haftalık</button><button type="button" class="period-choice" data-client-period="month">Aylık</button></div>
  <section class="client-overview">
-  <div class="active-total"><div><span class="overview-kicker">BU HAFTA AKTİF</span><strong id="activeClientCount">0</strong><small>danışan</small></div><span class="active-mark">●</span></div>
+  <div class="active-total"><div><span class="overview-kicker" id="activePeriodLabel">BU HAFTA AKTİF</span><strong id="activeClientCount">0</strong><small>tekil danışan</small></div><span class="active-mark">●</span></div>
   <div class="source-counts" id="clientSourceCounts"></div>
  </section>
  <div class="client-tools"><input class="search" id="clientSearch" placeholder="Danışan ara…"><button class="primary-btn" id="addClientBtn">+ Ekle</button></div>
@@ -264,6 +271,7 @@ const cleanedClients=clients.filter(c=>!demoClientNames.has(String(c.name||'')) 
 if(cleanedClients.length!==clients.length){clients=cleanedClients;persistClients()}
 function getClient(name){return clients.find(c=>clientKey(c.name)===clientKey(name))}
 function rateShare(gross,rate){return Math.round((Number(gross||0)*Number(rate||0))/100*100)/100}
+function clientShare(gross,client){if(!client)return 0;return client.rateMode==='fixed'?Math.min(Number(gross||0),Number(client.rate||0)):rateShare(gross,client.rate||0)}
 
 function persist(){localStorage.setItem('terapi-records',JSON.stringify(records))}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -287,24 +295,21 @@ function render(){
  $('excludedList').innerHTML=excluded.length?excluded.map(r=>`<div class="row-meta" style="padding:8px 1px;border-bottom:1px solid var(--line)">${esc(r.title)} · ${r.date.split('-').reverse().join('.')}</div>`).join(''):'<div class="row-meta" style="padding:8px 0">Hesap dışı kayıt bulunmuyor.</div>';
  renderClients();
 }
-let clientSourceFilter='ALL',showInactiveClients=false;
+let clientSourceFilter='ALL',showInactiveClients=false,clientPeriod='week';
 function renderClients(){
  const q=($('clientSearch')?.value||'').toLocaleLowerCase('tr');
- // Aktif danışan sayısı haftalık hesaplanır: Pazartesi–Pazar aralığında
- // en az bir planlanmış veya gerçekleşmiş seansı bulunan danışanlar sayılır.
- // Son 8 haftalık kayan pencere kullanılmaz.
- const weekStart=new Date(today);weekStart.setHours(12,0,0,0);
- const dayOffset=(weekStart.getDay()+6)%7;weekStart.setDate(weekStart.getDate()-dayOffset);
- const weekEnd=new Date(weekStart);weekEnd.setDate(weekEnd.getDate()+6);
- const weekFrom=iso(weekStart),weekTo=iso(weekEnd);
- const lastCompleted=new Map(),weeklyKeys=new Set();
+ // Haftalık veya aylık tekil danışan: dönem içinde planlanan/gerçekleşen en az bir seans.
+ const periodStart=clientPeriod==='week'?(()=>{const d=new Date(today);d.setHours(12,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7));return d})():new Date(today.getFullYear(),today.getMonth(),1,12);
+ const periodEnd=clientPeriod==='week'?(()=>{const d=new Date(periodStart);d.setDate(d.getDate()+6);return d})():new Date(today.getFullYear(),today.getMonth()+1,0,12);
+ const periodFrom=iso(periodStart),periodTo=iso(periodEnd);
+ const lastCompleted=new Map(),periodKeys=new Set();
  records.forEach(r=>{
   const k=clientKey(r.name),d=r.date||'';
   if(r.status==='completed'&&d&&(!lastCompleted.has(k)||d>lastCompleted.get(k)))lastCompleted.set(k,d);
-  if(d>=weekFrom&&d<=weekTo&&['completed','scheduled'].includes(r.status))weeklyKeys.add(k);
+  if(d>=periodFrom&&d<=periodTo&&['completed','scheduled'].includes(r.status))periodKeys.add(k);
  });
- const isActive=c=>weeklyKeys.has(clientKey(c.name));
- const active=clients.filter(isActive);
+ const isActive=c=>periodKeys.has(clientKey(c.name));
+ const active=clients.filter(isActive);$('activePeriodLabel').textContent=clientPeriod==='week'?'BU HAFTA AKTİF':'BU AY AKTİF';document.querySelectorAll('[data-client-period]').forEach(b=>b.classList.toggle('active',b.dataset.clientPeriod===clientPeriod));
  const counts={R:0,B:0,K:0};active.forEach(c=>{if(counts[c.source]!==undefined)counts[c.source]++});
  $('activeClientCount').textContent=active.length;
  $('clientSourceCounts').innerHTML=[['R','Reklam','r'],['B','Bireysel','b'],['K','Kurum','k']].map(([code,label,cls])=>`<div class="source-count ${cls}"><span>${label}</span><strong>${counts[code]}</strong></div>`).join('');
@@ -322,11 +327,12 @@ function renderClients(){
   const last=lastCompleted.get(clientKey(c.name));
   const activeNow=isActive(c);
   const rate=c.source==='K'?Number(c.rate||0):0;
-  const net=Number(c.fee||0)-rateShare(c.fee,rate);
+  const net=Number(c.fee||0)-clientShare(c.fee,c);
   return `<div class="summary-row"><button class="list-button" data-client-edit="${esc(c.name)}"><div class="avatar">${c.source||'·'}</div><div class="row-main"><div class="row-name">${esc(c.name)}</div><div class="row-meta">${{R:'Reklam',B:'Bireysel',K:'Kurum'}[c.source]||'Danışan'} · ${completed} gerçekleşen seans</div><div class="row-meta">${activeNow?'Son seans: '+last.split('-').reverse().join('.'):'Pasif danışan'} · ${money(c.fee)} / seans</div></div><div class="row-end"><div class="row-value">${money(net)}</div><div class="row-sub">Seans başı net</div></div></button></div>`
  }).join(''):'<div class="empty">Bu filtrede danışan bulunamadı.</div>';
  document.querySelectorAll('[data-client-edit]').forEach(b=>b.onclick=()=>openClientModal(b.dataset.clientEdit));
 }
+document.querySelectorAll('[data-client-period]').forEach(b=>b.onclick=()=>{clientPeriod=b.dataset.clientPeriod;renderClients()});
 $('clientFilters').addEventListener('click',e=>{const b=e.target.closest('[data-client-filter]');if(b){clientSourceFilter=b.dataset.clientFilter;renderClients()}});
 $('showInactive').onclick=()=>{showInactiveClients=!showInactiveClients;$('showInactive').textContent=showInactiveClients?'Aktifleri göster':'Pasifleri göster';renderClients()};
 $('clientSearch').oninput=renderClients;
@@ -334,22 +340,22 @@ $('clientSearch').oninput=renderClients;
 function openClientModal(name){
  const c=name?getClient(name):null;
  $('clientModalTitle').textContent=c?'Danışan profilini düzenle':'Yeni danışan';
- $('clientOriginalName').value=c?.name||'';$('clientName').value=c?.name||'';$('clientSource').value=c?.source||'K';$('clientFee').value=c?.fee??'';$('clientRate').value=c?.rate??0;
- $('clientRate').disabled=$('clientSource').value!=='K';updateClientPreview();$('clientModalBg').classList.add('open');
+ $('clientOriginalName').value=c?.name||'';$('clientName').value=c?.name||'';$('clientSource').value=c?.source||'K';$('clientFee').value=c?.fee??'';$('clientRate').value=c?.rate??0;$('clientRateMode').value=c?.rateMode||'percent';
+ $('clientRate').disabled=$('clientSource').value!=='K';$('clientRateMode').disabled=$('clientSource').value!=='K';updateClientRateLabel();updateClientPreview();$('clientModalBg').classList.add('open');
 }
-function updateClientPreview(){const fee=Number($('clientFee').value||0),rate=$('clientSource').value==='K'?Number($('clientRate').value||0):0;$('clientNetPreview').textContent=`Yeni seanslarda sana kalan: ${money(fee-rateShare(fee,rate))} · Kurum kesintisi: ${money(rateShare(fee,rate))}`}
+function updateClientPreview(){const fee=Number($('clientFee').value||0),client={rate:Number($('clientRate').value||0),rateMode:$('clientRateMode').value},cut=$('clientSource').value==='K'?clientShare(fee,client):0;$('clientNetPreview').textContent=`Yeni seanslarda sana kalan: ${money(fee-cut)} · Kurum kesintisi: ${money(cut)}`}
 $('addClientBtn').onclick=()=>openClientModal(null);$('clientCancel').onclick=()=>$('clientModalBg').classList.remove('open');$('clientModalBg').onclick=e=>{if(e.target===$('clientModalBg'))$('clientModalBg').classList.remove('open')};
-['clientFee','clientRate'].forEach(id=>$(id).oninput=updateClientPreview);
-$('clientSource').onchange=()=>{$('clientRate').disabled=$('clientSource').value!=='K';if($('clientSource').value!=='K')$('clientRate').value=0;updateClientPreview()};
+['clientFee','clientRate'].forEach(id=>$(id).oninput=updateClientPreview);$('clientRateMode').onchange=()=>{updateClientRateLabel();updateClientPreview()};
+$('clientSource').onchange=()=>{$('clientRate').disabled=$('clientSource').value!=='K';$('clientRateMode').disabled=$('clientSource').value!=='K';if($('clientSource').value!=='K')$('clientRate').value=0;updateClientPreview()};
 $('clientSave').onclick=()=>{
- const name=$('clientName').value.trim(),oldName=$('clientOriginalName').value,source=$('clientSource').value,fee=Number($('clientFee').value||0),rate=source==='K'?Number($('clientRate').value||0):0;
- if(!name)return alert('Danışan adı gerekli.');if(rate<0||rate>100)return alert('Kurum kesintisi %0 ile %100 arasında olmalı.');
+ const name=$('clientName').value.trim(),oldName=$('clientOriginalName').value,source=$('clientSource').value,fee=Number($('clientFee').value||0),rate=source==='K'?Number($('clientRate').value||0):0,rateMode=$('clientRateMode').value;
+ if(!name)return alert('Danışan adı gerekli.');if(rate<0||(rateMode==='percent'&&rate>100))return alert(rateMode==='percent'?'Kurum kesintisi %0 ile %100 arasında olmalı.':'Kurum kesintisi negatif olamaz.');if(rateMode==='fixed'&&rate>fee)return alert('Sabit kurum kesintisi seans ücretinden fazla olamaz.');
  const existing=getClient(oldName||name);if(existing&&oldName&&clientKey(oldName)!==clientKey(name)&&getClient(name))return alert('Bu isimde başka bir danışan zaten var.');
- if(existing){existing.name=name;existing.source=source;existing.fee=fee;existing.rate=rate}else clients.push({name,source,fee,rate});
+ if(existing){existing.name=name;existing.source=source;existing.fee=fee;existing.rate=rate;existing.rateMode=rateMode;existing.feeUpdatedAt=iso(today)}else clients.push({name,source,fee,rate,rateMode,feeUpdatedAt:iso(today)});
  // Danışan adı değişirse kayıtları eşle; tamamlanmış seansların finansal geçmişine dokunma.
  if(oldName&&clientKey(oldName)!==clientKey(name)){records.forEach(r=>{if(clientKey(r.name)===clientKey(oldName)){r.name=name;r.title=r.source?`${r.source} - ${name} - ${r.gross}`:name}})}
  // Yeni ücret/oran yalnızca henüz gerçekleşmemiş seanslara uygulanır.
- records.forEach(r=>{if(clientKey(r.name)===clientKey(name)&&r.status==='scheduled'&&r.date>=iso(today)){r.source=source;r.gross=fee;r.share=source==='K'?rateShare(fee,rate):0;r.title=source?`${source} - ${name} - ${fee}`:name}});
+ records.forEach(r=>{if(clientKey(r.name)===clientKey(name)&&r.status==='scheduled'&&r.date>=iso(today)){r.source=source;r.gross=fee;r.share=source==='K'?clientShare(fee,{rate,rateMode}):0;r.title=source?`${source} - ${name} - ${fee}`:name}});
  persist();persistClients();$('clientModalBg').classList.remove('open');render();
 };
 
@@ -367,7 +373,7 @@ function openModal(id){let r=records.find(x=>x.id===id);$('recordId').value=r?.i
 function closeModal(){$('modalBg').classList.remove('open')}
 function preview(){$('netPreview').textContent='Sana kalan: '+money(Number($('gross').value||0)-Number($('share').value||0))}
 ['gross','share'].forEach(id=>$(id).oninput=preview);
-$('name').onchange=()=>{if($('recordId').value)return;const c=getClient($('name').value.trim());if(c){$('source').value=c.source;$('gross').value=c.fee||'';$('share').value=c.source==='K'?rateShare(c.fee,c.rate):0;$('shareHelp').textContent=c.source==='K'?`Danışan profilindeki güncel kurum oranı: %${c.rate||0}`:'Kurum kesintisi yok.';preview()}};
+$('name').onchange=()=>{if($('recordId').value)return;const c=getClient($('name').value.trim());if(c){$('source').value=c.source;$('gross').value=c.fee||'';$('share').value=c.source==='K'?clientShare(c.fee,c):0;$('shareHelp').textContent=c.source==='K'?`Danışan profilindeki güncel kurum kesintisi: ${c.rateMode==='fixed'?money(c.rate):'%'+(c.rate||0)}`:'Kurum kesintisi yok.';preview()}};
 $('source').onchange=()=>{
  const isInstitution=$('source').value==='K';
  $('shareHelp').textContent=isInstitution?'Kurum danışanında kurum payını bu danışan için bir kez gir.':'Reklam ve bireysel danışanlarda otomatik 0 TL.';
@@ -552,7 +558,8 @@ async function syncGoogleCalendar() {
         existing.name = parsed.name;
         existing.source = parsed.source;
         existing.sessionNumber = parsed.sessionNumber;
-        // Mevcut seansların ücret/kesinti geçmişini koru; yalnızca takvim bilgilerini güncelle.
+        // Takvim başlığındaki ücret o seansın tarihsel ücretidir; kurum payı snapshot'ını koru.
+        if (parsed.gross > 0) existing.gross = parsed.gross;
         existing.date = parsed.date;
         existing.time = parsed.time;
         existing.status = parsed.status;
@@ -564,7 +571,7 @@ async function syncGoogleCalendar() {
         let profile = getClient(parsed.name);
         const gross = parsed.gross || Number(profile?.fee || 0);
         const source = profile?.source || parsed.source;
-        const share = source === 'K' ? rateShare(gross, profile?.rate || 0) : 0;
+        const share = source === 'K' ? clientShare(gross, profile) : 0;
         records.push({
           id: uid(), googleEventId: ev.id, title: parsed.title, name: parsed.name,
           source, sessionNumber: parsed.sessionNumber, date: parsed.date, time: parsed.time,
@@ -580,6 +587,18 @@ async function syncGoogleCalendar() {
     }
     pageToken = response.result.nextPageToken;
   } while (pageToken);
+  // Profildeki güncel ücreti, en son tarihli seansın takvim ücretinden güncelle.
+  // Kullanıcı profili elle daha sonra güncellediyse bu manuel değişikliği ezme.
+  clients.forEach(c => {
+    const key = clientKey(c.name);
+    const latest = records.filter(r => clientKey(r.name) === key && r.googleEventId && Number(r.gross) > 0)
+      .sort((a,b) => ((b.date||'')+(b.time||'')).localeCompare((a.date||'')+(a.time||'')))[0];
+    if (latest && (!c.feeUpdatedAt || latest.date > c.feeUpdatedAt)) {
+      c.fee = Number(latest.gross);
+      c.lastFeeDate = latest.date;
+    }
+  });
+  persistClients();
   // Önceki hatalı ayrıştırmadan kalan 'Danışan Adı - SeansNo' profillerini temizle.
   const canonicalNames = new Set(records.filter(r => r.googleEventId && r.source && r.name)
     .map(r => clientKey(r.name)));
