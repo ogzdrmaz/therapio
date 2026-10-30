@@ -248,17 +248,22 @@ function calendarStatus(message, kind='') {
   el.className = 'calendar-status' + (kind ? ' ' + kind : '');
 }
 function loadGoogleLibraries() {
+  // gapi.client, gapi.load('client') çağrısından SONRA oluşur.
+  // Bu nedenle burada yalnızca ana gapi nesnesini bekliyoruz.
   return new Promise((resolve, reject) => {
     const started = Date.now();
     const timer = setInterval(() => {
-      const gisReady = !!(window.google && google.accounts && google.accounts.oauth2);
-      const gapiReady = !!(window.gapi && gapi.client);
+      const gisReady = !!(window.google && window.google.accounts && window.google.accounts.oauth2);
+      const gapiReady = !!(window.gapi && typeof window.gapi.load === 'function');
       if (gisReady && gapiReady) {
         clearInterval(timer);
         resolve();
-      } else if (Date.now() - started > 20000) {
+      } else if (Date.now() - started > 30000) {
         clearInterval(timer);
-        reject(new Error('Google bağlantı kütüphaneleri yüklenemedi. İnternet bağlantını kontrol edip tekrar dene.'));
+        const missing = [];
+        if (!gisReady) missing.push('Google Identity Services');
+        if (!gapiReady) missing.push('Google API Client');
+        reject(new Error(missing.join(' ve ') + ' yüklenemedi. Sayfayı yenileyip tekrar dene.'));
       }
     }, 150);
   });
@@ -267,13 +272,32 @@ async function initGoogleCalendar() {
   await loadGoogleLibraries();
   if (!googleApiReady) {
     await new Promise((resolve, reject) => {
-      gapi.load('client', async () => {
-        try {
-          await gapi.client.init({ discoveryDocs: [GOOGLE_DISCOVERY] });
-          googleApiReady = true;
-          resolve();
-        } catch (e) { reject(e); }
-      });
+      let settled = false;
+      const finishError = (message) => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(message));
+      };
+      try {
+        gapi.load('client', {
+          callback: async () => {
+            if (settled) return;
+            try {
+              await gapi.client.init({ discoveryDocs: [GOOGLE_DISCOVERY] });
+              googleApiReady = true;
+              settled = true;
+              resolve();
+            } catch (e) {
+              finishError('Google Calendar API başlatılamadı: ' + (e.message || e));
+            }
+          },
+          onerror: () => finishError('Google API Client yüklenirken hata oluştu.'),
+          timeout: 20000,
+          ontimeout: () => finishError('Google API Client zaman aşımına uğradı.')
+        });
+      } catch (e) {
+        finishError('Google API Client başlatılamadı: ' + (e.message || e));
+      }
     });
   }
   if (!googleTokenClient) {
