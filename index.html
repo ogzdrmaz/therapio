@@ -328,7 +328,7 @@ function renderClients(){
   const activeNow=isActive(c);
   const rate=c.source==='K'?Number(c.rate||0):0;
   const net=Number(c.fee||0)-clientShare(c.fee,c);
-  return `<div class="summary-row"><button class="list-button" data-client-edit="${esc(c.name)}"><div class="avatar">${c.source||'·'}</div><div class="row-main"><div class="row-name">${esc(c.name)}</div><div class="row-meta">${{R:'Reklam',B:'Bireysel',K:'Kurum'}[c.source]||'Danışan'} · ${completed} gerçekleşen seans</div><div class="row-meta">${activeNow?'Son seans: '+last.split('-').reverse().join('.'):'Pasif danışan'} · ${money(c.fee)} / seans</div></div><div class="row-end"><div class="row-value">${money(net)}</div><div class="row-sub">Seans başı net</div></div></button></div>`
+  return `<div class="summary-row"><button class="list-button" data-client-edit="${esc(c.name)}"><div class="avatar">${c.source||'·'}</div><div class="row-main"><div class="row-name">${esc(c.name)}</div><div class="row-meta">${{R:'Reklam',B:'Bireysel',K:'Kurum'}[c.source]||'Danışan'} · ${completed} gerçekleşen seans</div><div class="row-meta">${activeNow?(last?'Son gerçekleşen seans: '+last.split('-').reverse().join('.'):'Bu dönemde seansı var'):'Pasif danışan'} · ${money(c.fee)} / seans</div></div><div class="row-end"><div class="row-value">${money(net)}</div><div class="row-sub">Seans başı net</div></div></button></div>`
  }).join(''):'<div class="empty">Bu filtrede danışan bulunamadı.</div>';
  document.querySelectorAll('[data-client-edit]').forEach(b=>b.onclick=()=>openClientModal(b.dataset.clientEdit));
 }
@@ -675,7 +675,13 @@ calendarButton.onclick = () => {
   } else {
     // Bu satır doğrudan dokunma olayında çalışır; arada await yoktur.
     calendarButton.textContent = 'Google açılıyor…';
-    googleTokenClient.requestAccessToken({ prompt: 'consent' });
+    try {
+      googleTokenClient.requestAccessToken({ prompt: 'consent' });
+    } catch (err) {
+      calendarButton.textContent = 'Tekrar dene ↻';
+      calendarStatus('Google giriş penceresi açılamadı: ' + (err.message || err), 'error');
+      alert('Google giriş penceresi açılamadı: ' + (err.message || err));
+    }
   }
 };
 
