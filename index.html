@@ -185,19 +185,14 @@ const iso=d=>{const x=new Date(d);return `${x.getFullYear()}-${String(x.getMonth
 const shift=(d,n)=>{let x=new Date(d);x.setDate(x.getDate()+n);return x};
 const uid=()=>Math.random().toString(36).slice(2,10);
 const today=new Date();
-const seed=[
- ['R - Ayşe Yılmaz - 1500',-1,'10:00',1500,450,'completed'],
- ['B - Deniz Kaya - 1800',-2,'13:00',1800,0,'completed'],
- ['K - Ece Demir - 1200',-3,'16:00',1200,300,'completed'],
- ['R - Mert Aydın - 1500',-4,'11:00',1500,450,'completed'],
- ['B - Selin Arslan - 1800',-5,'14:00',1800,0,'completed'],
- ['Ekip toplantısı',-1,'17:00',0,0,'scheduled'],
- ['Süpervizyon',-8,'09:00',0,0,'scheduled'],
- ['K - Can Yıldız - 1200',-11,'15:00',1200,300,'completed'],
- ['R - Zeynep Şen - 1500',-18,'12:00',1500,450,'completed']
-];
+// Demo danışan/seans verisi oluşturulmaz; kayıtlar yalnızca kullanıcının takviminden veya girişinden gelir.
 let records=JSON.parse(localStorage.getItem('terapi-records')||'null');
-if(!records){records=seed.map(a=>{let m=a[0].match(/^([RBK])\s*-\s*(.+?)\s*-\s*([\d.,]+)$/);return{id:uid(),title:a[0],name:m?m[2]:a[0],source:m?m[1]:'',date:iso(shift(today,a[1])),time:a[2],gross:a[3],share:a[4],status:a[5]}});persist()}
+if(!records){records=[];persist()}
+// Önceki prototipte otomatik eklenen örnek kayıtları mevcut cihazlardan temizle.
+const demoTitles=new Set(['R - Ayşe Yılmaz - 1500','B - Deniz Kaya - 1800','K - Ece Demir - 1200','R - Mert Aydın - 1500','B - Selin Arslan - 1800','Ekip toplantısı','Süpervizyon','K - Can Yıldız - 1200','R - Zeynep Şen - 1500']);
+const beforeDemoCleanup=records.length;
+records=records.filter(r=>r.googleEventId || !demoTitles.has(String(r.title||'')));
+if(records.length!==beforeDemoCleanup)persist();
 let clients=JSON.parse(localStorage.getItem('terapi-clients')||'null');
 function persistClients(){localStorage.setItem('terapi-clients',JSON.stringify(clients))}
 function clientKey(name){return String(name||'').trim().toLocaleLowerCase('tr')}
@@ -206,6 +201,10 @@ if(!clients){
  [...records].sort((a,b)=>(a.date||'').localeCompare(b.date||'')).forEach(r=>{if(r.name&&r.source){const k=clientKey(r.name);latest[k]={name:r.name,source:r.source,fee:Number(r.gross)||0,rate:r.source==='K'&&Number(r.gross)>0?Math.round((Number(r.share||0)/Number(r.gross))*10000)/100:0}}});
  clients=Object.values(latest);persistClients();
 }
+// Eski prototipin demo profillerini, gerçek takvim kaydı değillerse kaldır.
+const demoClientNames=new Set(['Ayşe Yılmaz','Deniz Kaya','Ece Demir','Mert Aydın','Selin Arslan','Can Yıldız','Zeynep Şen']);
+const cleanedClients=clients.filter(c=>!demoClientNames.has(String(c.name||'')) || records.some(r=>r.googleEventId && clientKey(r.name)===clientKey(c.name)));
+if(cleanedClients.length!==clients.length){clients=cleanedClients;persistClients()}
 function getClient(name){return clients.find(c=>clientKey(c.name)===clientKey(name))}
 function rateShare(gross,rate){return Math.round((Number(gross||0)*Number(rate||0))/100*100)/100}
 
@@ -385,10 +384,12 @@ async function initGoogleCalendar() {
 }
 function parseTherapioEvent(ev) {
   const title = (ev.summary || 'Başlıksız etkinlik').trim();
-  const match = title.match(/^([RBK])\s*[-–—]\s*(.+?)\s*[-–—]\s*([\d.,]+)\s*₺?$/i);
+  // Desteklenen başlıklar: R-İsim-1500, R - İsim - 1500 ve R-İsim-
+  // Son ücret yazılmamışsa danışan profilindeki güncel ücret kullanılır.
+  const match = title.match(/^([RBK])\s*[-–—]\s*(.+?)\s*[-–—]\s*(?:(\d[\d.,]*)\s*₺?)?$/i);
   const source = match ? match[1].toUpperCase() : '';
   const name = match ? match[2].trim() : title;
-  const gross = match ? Number(match[3].replace(/\./g, '').replace(',', '.')) : 0;
+  const gross = match && match[3] ? Number(match[3].replace(/\./g, '').replace(',', '.')) : 0;
   const startValue = ev.start && (ev.start.dateTime || ev.start.date);
   const startDate = startValue ? new Date(startValue) : new Date();
   const date = startValue && ev.start.date
@@ -429,9 +430,13 @@ async function syncGoogleCalendar() {
         existing.date = parsed.date;
         existing.time = parsed.time;
         existing.status = parsed.status;
+        if (!getClient(parsed.name) && parsed.source) {
+          clients.push({ name: parsed.name, source: parsed.source, fee: parsed.gross || Number(existing.gross || 0), rate: 0 });
+          persistClients();
+        }
       } else {
-        const profile = getClient(parsed.name);
-        const gross = profile ? Number(profile.fee || 0) : parsed.gross;
+        let profile = getClient(parsed.name);
+        const gross = parsed.gross || Number(profile?.fee || 0);
         const source = profile?.source || parsed.source;
         const share = source === 'K' ? rateShare(gross, profile?.rate || 0) : 0;
         records.push({
@@ -439,8 +444,12 @@ async function syncGoogleCalendar() {
           source, date: parsed.date, time: parsed.time,
           gross, share, status: parsed.status
         });
+        if (!profile && parsed.source) {
+          clients.push({ name: parsed.name, source: parsed.source, fee: gross, rate: 0 });
+          persistClients();
+        }
       }
-      if (parsed.source && parsed.gross > 0) imported++;
+      if (parsed.source && parsed.name) imported++;
       else skipped++;
     }
     pageToken = response.result.nextPageToken;
@@ -451,20 +460,65 @@ async function syncGoogleCalendar() {
   calendarStatus(`Google Takvim bağlı · ${imported} Therapio kaydı eşitlendi · ${skipped} diğer etkinlik bulundu · ${stamp}`, 'ok');
   $('calendarConnect').textContent = 'Takvimi yenile ↻';
 }
-$('calendarConnect').onclick = async () => {
-  $('calendarConnect').disabled = true;
-  const original = $('calendarConnect').textContent;
-  $('calendarConnect').textContent = 'Bağlanıyor…';
-  try {
-    await initGoogleCalendar();
-    if (googleAccessToken) await syncGoogleCalendar();
-    else googleTokenClient.requestAccessToken({ prompt: 'consent' });
-  } catch (err) {
-    calendarStatus(err.message || 'Google bağlantısı başlatılamadı.', 'error');
-    alert(err.message || 'Google bağlantısı başlatılamadı.');
-    $('calendarConnect').textContent = original;
-  } finally {
-    $('calendarConnect').disabled = false;
+// Google kitaplıklarını sayfa açılırken hazırla. Önemli: OAuth popup çağrısı,
+// kullanıcının tıklama olayı içinde ve hiçbir await sonrasında yapılmamalı.
+let googleCalendarPreparing = true;
+let googleCalendarInitError = null;
+const calendarButton = $('calendarConnect');
+calendarButton.disabled = true;
+calendarButton.textContent = 'Google hazırlanıyor…';
+calendarStatus('Google Takvim bağlantısı hazırlanıyor…');
+
+initGoogleCalendar().then(() => {
+  googleCalendarPreparing = false;
+  calendarButton.disabled = false;
+  calendarButton.textContent = 'Takvimi bağla ↗';
+  calendarStatus('Google Takvim bağlantısı hazır.');
+}).catch(err => {
+  googleCalendarPreparing = false;
+  googleCalendarInitError = err;
+  calendarButton.disabled = false;
+  calendarButton.textContent = 'Tekrar dene ↻';
+  calendarStatus(err.message || 'Google kütüphaneleri yüklenemedi.', 'error');
+});
+
+calendarButton.onclick = () => {
+  if (googleCalendarPreparing) {
+    calendarStatus('Google bağlantısı henüz hazırlanıyor. Birkaç saniye bekleyip tekrar dokun.', 'error');
+    return;
+  }
+  if (googleCalendarInitError || !googleTokenClient || !googleApiReady) {
+    calendarButton.disabled = true;
+    calendarButton.textContent = 'Google hazırlanıyor…';
+    calendarStatus('Google bağlantısı yeniden hazırlanıyor…');
+    initGoogleCalendar().then(() => {
+      googleCalendarInitError = null;
+      calendarButton.disabled = false;
+      calendarButton.textContent = 'Takvimi bağla ↗';
+      calendarStatus('Bağlantı hazır. Şimdi tekrar Takvimi bağla butonuna dokun.');
+    }).catch(err => {
+      googleCalendarInitError = err;
+      calendarButton.disabled = false;
+      calendarButton.textContent = 'Tekrar dene ↻';
+      calendarStatus(err.message || 'Google bağlantısı başlatılamadı.', 'error');
+      alert(err.message || 'Google bağlantısı başlatılamadı.');
+    });
+    return;
+  }
+  if (googleAccessToken) {
+    calendarButton.disabled = true;
+    calendarButton.textContent = 'Takvim okunuyor…';
+    syncGoogleCalendar().catch(err => {
+      calendarStatus('Takvim okunamadı: ' + (err.message || 'Bilinmeyen hata'), 'error');
+      alert('Google Takvim okunamadı: ' + (err.message || 'Bilinmeyen hata'));
+    }).finally(() => {
+      calendarButton.disabled = false;
+      calendarButton.textContent = 'Takvimi yenile ↻';
+    });
+  } else {
+    // Bu satır doğrudan dokunma olayında çalışır; arada await yoktur.
+    calendarButton.textContent = 'Google açılıyor…';
+    googleTokenClient.requestAccessToken({ prompt: 'consent' });
   }
 };
 
