@@ -137,7 +137,8 @@ html,body{width:100%;max-width:100%;overflow-x:hidden}
  <div class="kpis">
   <div class="kpi featured"><div class="k-label">Sana kalan</div><div class="k-value" id="netTotal">₺0</div><div class="k-note" id="netNote">0 gerçekleşen görüşme</div></div>
   <div class="kpi"><div class="k-label">Danışanlardan alınan</div><div class="k-value" id="grossTotal">₺0</div><div class="k-note">Toplam görüşme ücreti</div></div>
-  <div class="kpi"><div class="k-label">Kurum payı</div><div class="k-value" id="shareTotal">₺0</div><div class="k-note">Ayrılan toplam tutar</div></div>
+  <div class="kpi"><div class="k-label">Kurum payı</div><div class="k-value" id="shareTotal">₺0</div><div class="k-note">Kuruma giden toplam kesinti</div></div>
+  <div class="kpi"><div class="k-label">İptal seans</div><div class="k-value" id="cancelledTotal">0</div><div class="k-note">Seçili dönemde iptal edilen</div></div>
  </div>
  <section class="panel"><div class="panel-head"><div class="panel-title">Kazanç grafiği</div><span class="muted" id="chartCaption">Son 7 gün</span></div><div class="chart" id="chart"></div><div class="legend"><span><i></i>Sana kalan</span><span><i></i>Kurum payı</span></div></section>
  <section class="panel"><div class="panel-head"><div class="panel-title">Gelir kaynakların</div><span class="muted" id="periodLabel"></span></div><div id="sourceSummary"></div></section>
@@ -267,6 +268,8 @@ function statusText(s){return({completed:'Gerçekleşti',scheduled:'Planlandı',
 function render(){
  const {from,to}=bounds(),items=records.filter(r=>r.date>=from&&r.date<=to),earned=items.filter(isEarned);
  const gross=earned.reduce((a,r)=>a+Number(r.gross),0),share=earned.reduce((a,r)=>a+Number(r.share||0),0),net=gross-share;
+ const cancelledInPeriod=items.filter(r=>r.status==='cancelled').length;
+ $('cancelledTotal').textContent=String(cancelledInPeriod);
  $('netTotal').textContent=money(net);$('grossTotal').textContent=money(gross);$('shareTotal').textContent=money(share);$('netNote').textContent=earned.length+' gerçekleşen görüşme';
  $('periodLabel').textContent=custom?`${from.split('-').reverse().join('.')} – ${to.split('-').reverse().join('.')}`:range==='month'?'Bu ay':'Son 7 gün';
  $('chartCaption').textContent=range==='month'&&!custom?'Bu ay':custom?'Seçili dönem':'Son 7 gün';
@@ -482,7 +485,11 @@ function parseTherapioEvent(ev) {
   const titleValid=['R','B','K'].includes(source)&&parts.length>=3&&!!parts[1]&&/^\d+$/.test(parts[2])&&!/^\d{1,2}[:.]\d{2}/.test(parts[1]);
   const name=titleValid?parts[1].replace(/\s+/g,' ').trim():'';
   const sessionNumber=titleValid?Number(parts[2]):null;
-  const feeText=titleValid&&parts.length>=4?parts.slice(3).join('').replace(/[^\d.,]/g,''):'';
+  const rateText=titleValid&&parts.length>=5?parts[parts.length-1].replace('%','').trim():'';
+  const parsedRate=rateText!==''&&/^\d+(?:[.,]\d+)?$/.test(rateText)?Number(rateText.replace(',','.')):null;
+  const rate=parsedRate!==null&&parsedRate>=0&&parsedRate<=100?parsedRate:null;
+  const feeParts=titleValid&&parts.length>=4?(rate!==null?parts.slice(3,-1):parts.slice(3)):[];
+  const feeText=feeParts.join('').replace(/[^\d.,]/g,'');
   const gross=feeText?Number(feeText.replace(/\./g,'').replace(',','.')):0;
   const colorId=String(ev.colorId||'');
   const isGrey=colorId==='8';
@@ -495,7 +502,7 @@ function parseTherapioEvent(ev) {
   const date=startValue&&ev.start&&ev.start.date?ev.start.date:(startValue&&ev.originalStartTime&&ev.originalStartTime.date?ev.originalStartTime.date:`${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2,'0')}-${String(startDate.getDate()).padStart(2,'0')}`);
   const time=(ev.start&&ev.start.dateTime)||(ev.originalStartTime&&ev.originalStartTime.dateTime)?`${String(startDate.getHours()).padStart(2,'0')}:${String(startDate.getMinutes()).padStart(2,'0')}`:'09:00';
   const status=isCancelled?'cancelled':(isRed?'completed':'ignored');
-  return{title:rawTitle,name,source:titleValid?source:'',sessionNumber,gross,date,time,status,valid:titleValid&&colorValid,titleValid,colorId};
+  return{title:rawTitle,name,source:titleValid?source:'',sessionNumber,gross,rate,date,time,status,valid:titleValid&&colorValid,titleValid,colorId};
 }
 function cleanupNumberedDuplicateClients(){
  // Eski içe aktarımlarda "Ad Soyad - 12" biçiminde açılmış profilleri
@@ -608,6 +615,13 @@ async function syncGoogleCalendar() {
         existing.sessionNumber = parsed.sessionNumber;
         // Takvimde açıkça ücret varsa o seansın geçmiş ücretini güncelle; kesinti snapshot'ını koru.
         if(parsed.gross>0)existing.gross=parsed.gross;
+        if(parsed.rate!==null && parsed.rate!==undefined && parsed.source==='K'){
+          existing.share=rateShare(Number(parsed.gross||existing.gross||0),parsed.rate);
+          const currentProfile=getClient(parsed.name);
+          if(currentProfile){currentProfile.rate=parsed.rate;currentProfile.rateMode='percent';}
+        } else if(existing.share==null && parsed.source==='K'){
+          existing.share=clientShare(Number(existing.gross||parsed.gross||0),getClient(parsed.name));
+        }
         existing.date = parsed.date;
         existing.time = parsed.time;
         existing.status = parsed.status;
@@ -620,14 +634,14 @@ async function syncGoogleCalendar() {
         let profile = getClient(parsed.name);
         const gross = parsed.gross || Number(profile?.fee || 0);
         const source = parsed.source || profile?.source || '';
-        const share = source === 'K' ? clientShare(gross, profile) : 0;
+        const share = source === 'K' ? (parsed.rate!==null&&parsed.rate!==undefined?rateShare(gross,parsed.rate):clientShare(gross, profile)) : 0;
         records.push({
           id: uid(), googleEventId: ev.id, title: parsed.title, name: parsed.name,
           source, sessionNumber: parsed.sessionNumber, date: parsed.date, time: parsed.time,
           gross, share, status: parsed.status, colorId: parsed.colorId
         });
         if (!profile && parsed.source && parsed.status!=='cancelled') {
-          clients.push({ name: parsed.name, source: parsed.source, fee: gross, rate: 0, rateMode: 'percent' });
+          clients.push({ name: parsed.name, source: parsed.source, fee: gross, rate: parsed.rate||0, rateMode: 'percent' });
           persistClients();
         }
       }
