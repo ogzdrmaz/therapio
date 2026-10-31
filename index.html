@@ -156,21 +156,22 @@ html,body{width:100%;max-width:100%;overflow-x:hidden}
 #earningsPage .viz-toolbar{align-items:flex-start}
 #earningsPage .calendar-nav{width:100%;justify-content:space-between}
 #earningsPage .calendar-nav input{flex:1;min-width:0}
-#earningsPage .earnings-calendar{gap:7px;grid-template-columns:repeat(2,minmax(0,1fr))}
+#earningsPage #earningsCalendar.earnings-calendar{gap:7px;grid-template-columns:repeat(2,minmax(0,1fr)) !important}
 #earningsPage .calendar-weekday{display:none}
 #earningsPage .calendar-cell{min-width:0;min-height:112px;padding:9px 8px;border-radius:10px;overflow:hidden}
 #earningsPage .calendar-cell.selected{padding:8px 7px}
 #earningsPage .calendar-day{font-size:13px;margin-bottom:7px}
-#earningsPage .calendar-cell .cal-total{font-size:12px;white-space:nowrap;overflow-wrap:normal;word-break:keep-all;margin-bottom:4px}
-#earningsPage .calendar-cell .cal-line{font-size:10px;line-height:1.5;white-space:nowrap;overflow-wrap:normal;word-break:keep-all}
+#earningsPage .calendar-cell .cal-total{font-size:12px;white-space:normal;overflow-wrap:anywhere;word-break:normal;margin-bottom:4px}
+#earningsPage .calendar-cell .cal-line{font-size:10px;line-height:1.5;white-space:normal;overflow-wrap:anywhere;word-break:normal}
 #earningsPage .calendar-cell .no-data{font-size:11px}
-#earningsPage .earnings-calendar.mobile-week{grid-template-columns:minmax(0,1fr)}
-#earningsPage .earnings-calendar.mobile-week .calendar-cell{min-height:0;display:grid;grid-template-columns:42px repeat(3,minmax(0,1fr));align-items:center;column-gap:7px;padding:10px 9px}
-#earningsPage .earnings-calendar.mobile-week .calendar-day{grid-column:1;grid-row:1 / span 3;margin:0;font-size:13px}
-#earningsPage .earnings-calendar.mobile-week .cal-total{grid-column:2;grid-row:1;margin:0;font-size:12px}
-#earningsPage .earnings-calendar.mobile-week .cal-line:not(.cal-net){grid-column:3;grid-row:1;margin:0;font-size:10px}
-#earningsPage .earnings-calendar.mobile-week .cal-net{grid-column:4;grid-row:1;margin:0;font-size:10px}
-#earningsPage .earnings-calendar.mobile-week .no-data{grid-column:2 / -1;grid-row:1}
+#earningsPage #earningsCalendar.earnings-calendar.mobile-week{grid-template-columns:minmax(0,1fr) !important}
+#earningsPage .earnings-calendar.mobile-week .calendar-cell{min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:start;column-gap:8px;row-gap:7px;padding:11px 12px}
+#earningsPage .earnings-calendar.mobile-week .calendar-day{grid-column:1 / -1;grid-row:1;margin:0 0 2px;font-size:13px}
+#earningsPage .earnings-calendar.mobile-week .cal-total{grid-column:1;grid-row:2;margin:0;font-size:12px}
+#earningsPage .earnings-calendar.mobile-week .cal-line:not(.cal-net){grid-column:2;grid-row:2;margin:0;font-size:11px}
+#earningsPage .earnings-calendar.mobile-week .cal-net{grid-column:3;grid-row:2;margin:0;font-size:11px}
+#earningsPage .earnings-calendar.mobile-week .no-data{grid-column:1 / -1;grid-row:2}
+#earningsPage .earnings-calendar.mobile-week .cal-total,#earningsPage .earnings-calendar.mobile-week .cal-line{white-space:normal;overflow-wrap:anywhere}
 #earningsPage .detail-item strong{font-size:12px}
 #earningsPage .view-choice{padding:8px 9px}
 }
