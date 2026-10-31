@@ -223,14 +223,24 @@ const shift=(d,n)=>{let x=new Date(d);x.setDate(x.getDate()+n);return x};
 const uid=()=>Math.random().toString(36).slice(2,10);
 const today=new Date();
 // Demo danışan/seans verisi oluşturulmaz; kayıtlar yalnızca kullanıcının takviminden veya girişinden gelir.
-let records=JSON.parse(localStorage.getItem('terapi-records')||'null');
-if(!records){records=[];persist()}
+// Bozuk/eski cihaz verisi uygulamanın tüm JavaScript'ini durdurmasın.
+function readStoredArray(key){
+  let raw=null;
+  try{raw=localStorage.getItem(key);if(!raw)return [];const value=JSON.parse(raw);if(Array.isArray(value))return value;throw new Error('Kayıt biçimi beklenen liste değil.');}
+  catch(error){
+    // Hatalı veriyi silme; kurtarma için ham kopyasını ayrı anahtarda sakla.
+    try{if(raw!==null)localStorage.setItem('therapio-recovery-'+key,raw)}catch(_){ }
+    console.warn('Therapio yerel veri okunamadı:',key,error);return [];
+  }
+}
+let records=readStoredArray('terapi-records');
 // Önceki prototipte otomatik eklenen örnek kayıtları mevcut cihazlardan temizle.
 const demoTitles=new Set(['R - Ayşe Yılmaz - 1500','B - Deniz Kaya - 1800','K - Ece Demir - 1200','R - Mert Aydın - 1500','B - Selin Arslan - 1800','Ekip toplantısı','Süpervizyon','K - Can Yıldız - 1200','R - Zeynep Şen - 1500']);
 const beforeDemoCleanup=records.length;
-records=records.filter(r=>r.googleEventId || !demoTitles.has(String(r.title||'')));
+records=records.filter(r=>r && typeof r==='object' && (r.googleEventId || !demoTitles.has(String(r.title||''))));
 if(records.length!==beforeDemoCleanup)persist();
-let clients=JSON.parse(localStorage.getItem('terapi-clients')||'null');
+let clients=readStoredArray('terapi-clients');
+if(!Array.isArray(clients))clients=[];
 function persistClients(){localStorage.setItem('terapi-clients',JSON.stringify(clients))}
 function clientKey(name){return String(name||'').trim().toLocaleLowerCase('tr')}
 if(!clients){
@@ -240,7 +250,7 @@ if(!clients){
 }
 // Eski prototipin demo profillerini, gerçek takvim kaydı değillerse kaldır.
 const demoClientNames=new Set(['Ayşe Yılmaz','Deniz Kaya','Ece Demir','Mert Aydın','Selin Arslan','Can Yıldız','Zeynep Şen']);
-const cleanedClients=clients.filter(c=>!demoClientNames.has(String(c.name||'')) || records.some(r=>r.googleEventId && clientKey(r.name)===clientKey(c.name)));
+const cleanedClients=clients.filter(c=>c && typeof c==='object' && (!demoClientNames.has(String(c.name||'')) || records.some(r=>r.googleEventId && clientKey(r.name)===clientKey(c.name))));
 if(cleanedClients.length!==clients.length){clients=cleanedClients;persistClients()}
 function getClient(name){return clients.find(c=>clientKey(c.name)===clientKey(name))}
 function rateShare(gross,rate){return Math.round((Number(gross||0)*Number(rate||0))/100*100)/100}
@@ -262,12 +272,12 @@ function render(){
  $('chartCaption').textContent=range==='month'&&!custom?'Bu ay':custom?'Seçili dönem':'Son 7 gün';
  drawChart(earned,from,to);
  $('sourceSummary').innerHTML=['R','B','K'].map(code=>{let a=earned.filter(r=>r.source===code),g=a.reduce((s,r)=>s+Number(r.gross),0),sh=a.reduce((s,r)=>s+Number(r.share||0),0);let label={R:'Reklamdan gelen',B:'Bireysel danışan',K:'Kurumdan gelen'}[code];return `<div class="summary-row"><div class="avatar">${code}</div><div class="row-main"><div class="row-name">${label}</div><div class="row-meta">${a.length} görüşme · Kurum payı ${money(sh)}</div></div><div class="row-end"><div class="row-value">${money(g-sh)}</div><div class="row-sub">Sana kalan</div></div></div>`}).join('');
- let q=$('search').value.toLocaleLowerCase('tr'),sorted=[...records].sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time)),visible=sorted.filter(r=>(r.name+' '+r.title).toLocaleLowerCase('tr').includes(q));
+ let q=($('search').value||'').toLocaleLowerCase('tr'),sorted=[...records].sort((a,b)=>((b.date||'')+(b.time||'')).localeCompare((a.date||'')+(a.time||''))),visible=sorted.filter(r=>((r.name||'')+' '+(r.title||'')).toLocaleLowerCase('tr').includes(q));
  $('recordCount').textContent=records.length+' kayıt';
- $('recordsList').innerHTML=visible.length?visible.map(r=>`<div class="meeting-row"><button class="list-button" data-edit="${r.id}"><div class="avatar">${r.source||'·'}</div><div class="row-main"><div class="row-name">${esc(r.name||r.title)}</div><div class="row-meta">${r.date.split('-').reverse().join('.')} · ${r.time||'Saat belirtilmedi'} · <span class="badge ${r.status==='completed'?'done':r.status==='cancelled'?'cancel':''}">${statusText(r.status)}</span></div></div><div class="row-end"><div class="row-value">${r.gross?money(r.gross):'—'}</div><div class="row-sub">${r.gross?`Net ${money(Number(r.gross)-Number(r.share||0))}`:'Hesap dışı'}</div></div></button></div>`).join(''):'<div class="empty">Henüz kayıt yok. Yeni kayıt ekleyebilirsin.</div>';
+ $('recordsList').innerHTML=visible.length?visible.map(r=>`<div class="meeting-row"><button class="list-button" data-edit="${r.id}"><div class="avatar">${r.source||'·'}</div><div class="row-main"><div class="row-name">${esc(r.name||r.title)}</div><div class="row-meta">${String(r.date||'').split('-').reverse().join('.')} · ${r.time||'Saat belirtilmedi'} · <span class="badge ${r.status==='completed'?'done':r.status==='cancelled'?'cancel':''}">${statusText(r.status)}</span></div></div><div class="row-end"><div class="row-value">${r.gross?money(r.gross):'—'}</div><div class="row-sub">${r.gross?`Net ${money(Number(r.gross)-Number(r.share||0))}`:'Hesap dışı'}</div></div></button></div>`).join(''):'<div class="empty">Henüz kayıt yok. Yeni kayıt ekleyebilirsin.</div>';
  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openModal(b.dataset.edit));
  let excluded=records.filter(r=>!r.source||!Number(r.gross));$('excludedCount').textContent=excluded.length;
- $('excludedList').innerHTML=excluded.length?excluded.map(r=>`<div class="row-meta" style="padding:8px 1px;border-bottom:1px solid var(--line)">${esc(r.title)} · ${r.date.split('-').reverse().join('.')}</div>`).join(''):'<div class="row-meta" style="padding:8px 0">Hesap dışı kayıt bulunmuyor.</div>';
+ $('excludedList').innerHTML=excluded.length?excluded.map(r=>`<div class="row-meta" style="padding:8px 1px;border-bottom:1px solid var(--line)">${esc(r.title)} · ${String(r.date||'').split('-').reverse().join('.')}</div>`).join(''):'<div class="row-meta" style="padding:8px 0">Hesap dışı kayıt bulunmuyor.</div>';
  renderClients();
 }
 function clientPeriodBounds(){const now=new Date();if(clientPeriod==='month')return{from:iso(new Date(now.getFullYear(),now.getMonth(),1)),to:iso(new Date(now.getFullYear(),now.getMonth()+1,0))};const day=(now.getDay()+6)%7;const monday=shift(now,-day);return{from:iso(monday),to:iso(shift(monday,6))}}
@@ -287,8 +297,8 @@ function renderClients(){
  const q=($('clientSearch')?.value||'').toLocaleLowerCase('tr');
  const rows=clients.filter(c=>{
    const active=activeKeys.has(clientKey(c.name));
-   return active!==showInactiveClients && c.name.toLocaleLowerCase('tr').includes(q) && (clientSourceFilter==='all'||c.source===clientSourceFilter);
- }).sort((a,b)=>a.name.localeCompare(b.name,'tr'));
+   return active!==showInactiveClients && String(c.name||'').toLocaleLowerCase('tr').includes(q) && (clientSourceFilter==='all'||c.source===clientSourceFilter);
+ }).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'tr'));
  $('clientCount').textContent=rows.length+' danışan';
  $('clientList').innerHTML=rows.length?rows.map(c=>{
    const all=records.filter(r=>clientKey(r.name)===clientKey(c.name));
@@ -633,7 +643,7 @@ calendarButton.onclick = () => {
 cleanupNumberedDuplicateClients();
 refreshLatestClientFees();
 persistClients();
-render();
+try{render()}catch(startupError){console.error('Therapio başlangıç görüntüleme hatası:',startupError);const notice=document.createElement('div');notice.style='position:fixed;z-index:99999;left:12px;right:12px;bottom:100px;background:#fff1f0;color:#8b3030;padding:12px;border-radius:12px;font-size:13px';notice.textContent='Ekran verileri yüklenirken hata oluştu. Sayfayı yenileyin; sorun sürerse destek için hata kodu: '+(startupError.message||startupError);document.body.appendChild(notice)}
 </script>
 </body>
 </html>
