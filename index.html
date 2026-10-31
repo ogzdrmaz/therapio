@@ -477,9 +477,11 @@ async function initGoogleCalendar() {
 }
 function parseTherapioEvent(ev) {
   const rawTitle=(ev.summary||'Başlıksız etkinlik').trim();
-  const googleCancelled=/^cancelled\s*:\s*/i.test(rawTitle);
-  const userCancelled=/^iptal\s*[-–—]\s*/i.test(rawTitle);
-  const title=rawTitle.replace(/^cancelled\s*:\s*/i,'').replace(/^iptal\s*[-–—]\s*/i,'').trim();
+  // Google'ın kendi cancelled durumundaki etkinlikleri içe aktarma.
+  const googleCancelled=ev.status==='cancelled'||/^cancelled\s*:/i.test(rawTitle);
+  // Gri renk VEYA başlığın herhangi bir yerinde 'iptal' yazması iptal sayılır.
+  const userCancelled=/iptal/i.test(rawTitle);
+  const title=rawTitle.replace(/^iptal\s*[-–—:]\s*/i,'').trim();
   const parts=title.split(/\s*[-–—]\s*/).map(x=>x.trim());
   const source=(parts[0]||'').toUpperCase();
   const titleValid=['R','B','K'].includes(source)&&parts.length>=3&&!!parts[1]&&/^\d+$/.test(parts[2])&&!/^\d{1,2}[:.]\d{2}/.test(parts[1]);
@@ -494,9 +496,9 @@ function parseTherapioEvent(ev) {
   const colorId=String(ev.colorId||'');
   const isGrey=colorId==='8';
   const isRed=colorId==='11';
-  const isCancelled=ev.status==='cancelled'||googleCancelled||userCancelled||isGrey;
-  // Sadece kırmızı (gerçekleşti) ve gri/iptal kayıtları işlenir.
-  const colorValid=isRed||isCancelled;
+  const isCancelled=!googleCancelled&&(isGrey||userCancelled);
+  // Google'ın kendi iptalleri hariç; kırmızı tamamlandı, gri veya başlığında iptal yazan iptal.
+  const colorValid=!googleCancelled&&(isRed||isCancelled);
   const startValue=ev.start&&(ev.start.dateTime||ev.start.date)||(ev.originalStartTime&&(ev.originalStartTime.dateTime||ev.originalStartTime.date));
   const startDate=startValue?new Date(startValue):new Date();
   const date=startValue&&ev.start&&ev.start.date?ev.start.date:(startValue&&ev.originalStartTime&&ev.originalStartTime.date?ev.originalStartTime.date:`${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2,'0')}-${String(startDate.getDate()).padStart(2,'0')}`);
