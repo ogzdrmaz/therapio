@@ -67,6 +67,16 @@ h1{font-size:27px;letter-spacing:-1px;line-height:1.15;margin:0 0 6px;font-weigh
 .field{margin:11px 0}.field label{display:block;font-size:10px;font-weight:700;color:var(--muted);margin-bottom:6px}.field input,.field select{width:100%;border:1px solid var(--line);border-radius:11px;padding:11px;background:var(--bg);color:var(--ink);font-size:12px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.modal-actions{display:flex;gap:8px;margin-top:16px}.modal-actions button{flex:1}
 .theme-box{display:none;background:var(--paper2);padding:13px;border-radius:14px;margin-top:12px}.theme-box.open{display:block}.theme-options{display:flex;gap:8px}.theme-dot{border:2px solid transparent;border-radius:99px;width:29px;height:29px}.theme-dot.selected{outline:2px solid var(--accent-dark);outline-offset:2px}
+/* Kazanç sayfası: yalnızca bu sayfaya özel sadeleştirmeler */
+#earningsPage .kpis{grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+#earningsPage .kpi{padding:15px 14px}
+#earningsPage .kpi.featured{background:var(--accent-soft)}
+#earningsPage .panel{padding:18px 19px}
+#earningsPage .chart{height:190px}
+#earningsPage .legend{padding-top:5px}
+#earningsPage .rangebar{margin-bottom:12px}
+@media(max-width:850px){#earningsPage .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){#earningsPage .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}#earningsPage .kpi{padding:13px 12px}#earningsPage .kpi.featured{grid-column:span 2}#earningsPage .chart{height:178px}#earningsPage .panel{padding:15px}}
 @media(max-width:650px){.app{padding:18px 15px 100px}header{margin-bottom:25px}.kpis{grid-template-columns:1fr 1fr;gap:8px}.kpi.featured{grid-column:span 2}.kpi{padding:14px}.k-value{font-size:22px}.panel{padding:15px}.chart{height:155px}.head-btn{padding:9px 10px}.date-fields input{width:0}.two{gap:8px}}
 .list-button{width:100%;display:flex;align-items:center;text-align:left;background:transparent;border:0;color:inherit;padding:0;gap:10px}.summary-row{padding:12px 0;border-bottom:1px solid var(--line)}.summary-row:last-child{border-bottom:0}.list-button .row-main{min-width:0;flex:1}.list-button .row-meta{white-space:normal}.list-button .row-end{flex-shrink:0}.modal-bg{z-index:50}#clientModalBg{z-index:60}
 
@@ -354,14 +364,44 @@ $('showInactive').onclick=()=>{showInactiveClients=!showInactiveClients;renderCl
 $('clientSearch').oninput=renderClients;
 
 function drawChart(items,from,to){
- let start=new Date(from+'T12:00:00'),end=new Date(to+'T12:00:00'),days=Math.max(1,Math.round((end-start)/86400000)+1),groups=[];
- if(days<=10){for(let i=0;i<days;i++){let d=shift(start,i);groups.push({key:iso(d),label:d.toLocaleDateString('tr-TR',{weekday:'short'}),net:0,share:0})}}
- else if(days<=40){let step=Math.ceil(days/8);for(let i=0;i<days;i+=step){let d=shift(start,i);groups.push({key:iso(d),end:iso(shift(d,step)),label:d.getDate()+'.'+(d.getMonth()+1),net:0,share:0})}}
- else{for(let i=5;i>=0;i--){let d=new Date(today.getFullYear(),today.getMonth()-i,1);groups.push({key:d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'),label:d.toLocaleDateString('tr-TR',{month:'short'}),net:0,share:0})}}
- items.forEach(r=>{let g=groups.find(x=>x.key===r.date||(x.end&&r.date>=x.key&&r.date<x.end)||(x.key.length===7&&r.date.startsWith(x.key)));if(g){g.net+=Number(r.gross)-Number(r.share||0);g.share+=Number(r.share||0)}});
- const max=Math.max(1,...groups.map(g=>g.net+g.share)),w=640,h=158,base=128,bw=Math.min(35,400/groups.length),gap=(w-groups.length*bw)/(groups.length+1);
- const bars=groups.map((g,i)=>{let x=gap+i*(bw+gap),hn=g.net/max*100,hs=g.share/max*100;return `<rect x="${x}" y="${base-hn}" width="${bw}" height="${Math.max(0,hn)}" rx="5" fill="var(--accent)"/><rect x="${x}" y="${base-hn-hs}" width="${bw}" height="${Math.max(0,hs)}" rx="5" fill="var(--gold)" opacity=".85"/><text x="${x+bw/2}" y="148" font-size="10" text-anchor="middle" fill="var(--muted)">${g.label}</text>`}).join('');
- $('chart').innerHTML=`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Seçilen dönemin net kazanç ve kurum payı grafiği"><line x1="0" y1="${base}" x2="${w}" y2="${base}" stroke="var(--line)"/>${bars}</svg>`;
+ const start=new Date(from+'T12:00:00'),end=new Date(to+'T12:00:00');
+ const days=Math.max(1,Math.round((end-start)/86400000)+1),groups=[];
+ const compactMoney=n=>{
+  const v=Number(n)||0;
+  if(v>=1000000)return '₺'+(v/1000000).toLocaleString('tr-TR',{maximumFractionDigits:1})+'m';
+  if(v>=1000)return '₺'+(v/1000).toLocaleString('tr-TR',{maximumFractionDigits:1})+'k';
+  return '₺'+Math.round(v).toLocaleString('tr-TR');
+ };
+ if(days<=10){
+  for(let i=0;i<days;i++){const d=shift(start,i);groups.push({key:iso(d),end:iso(shift(d,1)),label:d.toLocaleDateString('tr-TR',{weekday:'short'}),net:0,share:0})}
+ }else if(days<=40){
+  const step=Math.ceil(days/8);
+  for(let i=0;i<days;i+=step){const d=shift(start,i),next=shift(d,step);groups.push({key:iso(d),end:iso(next),label:d.getDate()+'.'+(d.getMonth()+1),net:0,share:0})}
+ }else{
+  const monthCount=(end.getFullYear()-start.getFullYear())*12+(end.getMonth()-start.getMonth())+1;
+  const step=Math.max(1,Math.ceil(monthCount/8));
+  for(let i=0;i<monthCount;i+=step){
+   const d=new Date(start.getFullYear(),start.getMonth()+i,1),next=new Date(start.getFullYear(),start.getMonth()+Math.min(monthCount,i+step),1);
+   const monthLabel=d.toLocaleDateString('tr-TR',{month:'short'});
+   const last=new Date(next.getFullYear(),next.getMonth(),0);
+   const endLabel=step>1?last.toLocaleDateString('tr-TR',{month:'short'}):'';
+   groups.push({key:iso(d).slice(0,7),end:iso(next).slice(0,7),label:step>1?monthLabel+'–'+endLabel:monthLabel,net:0,share:0,monthly:true});
+  }
+ }
+ items.forEach(r=>{
+  const g=groups.find(x=>x.monthly?(r.date>=x.key+'-01'&&r.date<x.end+'-01'):(r.date>=x.key&&r.date<x.end));
+  if(g){g.net+=Number(r.gross)-Number(r.share||0);g.share+=Number(r.share||0)}
+ });
+ const max=Math.max(1,...groups.map(g=>g.net+g.share)),w=720,h=184,base=145,top=24,plotH=105;
+ const bw=Math.min(38,Math.max(17,Math.floor(430/groups.length))),gap=(w-groups.length*bw)/(groups.length+1);
+ const grid=[0,.5,1].map(v=>{const y=base-v*plotH;return `<line x1="18" y1="${y}" x2="${w-12}" y2="${y}" stroke="var(--line)" stroke-dasharray="3 5"/>`}).join('');
+ const bars=groups.map((g,i)=>{
+  const x=gap+i*(bw+gap),netH=g.net/max*plotH,shareH=g.share/max*plotH,total=g.net+g.share,y=base-netH-shareH;
+  const value=compactMoney(total),tip=`${g.label}: Toplam ${money(total)} · Sana kalan ${money(g.net)} · Kurum payı ${money(g.share)}`;
+  const labelY=Math.max(top-4,y-7);
+  return `<g><title>${esc(tip)}</title><rect x="${x}" y="${base-netH}" width="${bw}" height="${Math.max(0,netH)}" rx="4" fill="var(--accent)"/><rect x="${x}" y="${y}" width="${bw}" height="${Math.max(0,shareH)}" rx="4" fill="var(--gold)" opacity=".9"/><text x="${x+bw/2}" y="${labelY}" font-size="${groups.length>6?9:10}" font-weight="700" text-anchor="middle" fill="var(--ink)">${value}</text><text x="${x+bw/2}" y="166" font-size="${groups.length>6?9:10}" text-anchor="middle" fill="var(--muted)">${esc(g.label)}</text></g>`;
+ }).join('');
+ $('chart').innerHTML=groups.some(g=>g.net+g.share>0)?`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Seçilen dönemdeki kazanç grafiği">${grid}${bars}</svg>`:'<div class="empty" style="padding:55px 10px">Bu tarih aralığında gerçekleşmiş kazanç bulunmuyor.</div>';
 }
 function openModal(id){let r=records.find(x=>x.id===id);$('recordId').value=r?.id||'';$('modalTitle').textContent=r?'Seansı düzenle':'Yeni seans';$('name').value=r?.name||'';$('source').value=r?.source||'K';$('date').value=r?.date||iso(today);$('gross').value=r?.gross||'';$('share').value=r?.share??0;$('shareHelp').textContent=(r?.source||'K')==='K'?'Bu seansın kurum kesintisi. Yeni seanslar danışan profilindeki güncel oranı kullanır.':'Reklam ve bireysel danışanlarda kurum kesintisi 0 TL.';$('status').value=r?.status||'completed';$('time').value=r?.time||'10:00';$('deleteWrap').style.display=r?'flex':'none';preview();$('modalBg').classList.add('open')}
 function closeModal(){$('modalBg').classList.remove('open')}
