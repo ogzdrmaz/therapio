@@ -264,35 +264,20 @@ let range='7',custom=null,theme=localStorage.getItem('terapi-theme')||'rose';doc
 let clientPeriod='week',clientSourceFilter='all',showInactiveClients=false;
 function bounds(){if(custom)return custom;let now=new Date();if(range==='month')return{from:iso(new Date(now.getFullYear(),now.getMonth(),1)),to:iso(new Date(now.getFullYear(),now.getMonth()+1,0))};return{from:iso(shift(now,-6)),to:iso(now)}}
 function isEarned(r){return r.status==='completed'&&Number(r.gross)>0}
-// İptal sayımında yalnızca gri veya başlığında 'iptal' geçen geçerli seansları al.
-// Google Calendar'ın kendi status='cancelled' kayıtları sayılmaz.
-function isCancelledSessionRecord(r){
- if(!r||r.status!=='cancelled')return false;
- const title=String(r.title||'').trim();
- if(/^cancelled\s*:/i.test(title))return false;
- return String(r.colorId||'')==='8'||/iptal/i.test(title);
-}
-function countUniqueCancelled(list){
- const unique=new Map();
- list.filter(isCancelledSessionRecord).forEach(r=>{
-  const key=r.googleEventId?`g:${r.googleEventId}`:`l:${r.id}`;
-  if(!unique.has(key))unique.set(key,r);
- });
- return unique.size;
-}
 function statusText(s){return({completed:'Gerçekleşti',scheduled:'Planlandı',cancelled:'İptal edildi',noshow:'Gelmedi'})[s]||s}
 function render(){
  const {from,to}=bounds(),items=records.filter(r=>r.date>=from&&r.date<=to),earned=items.filter(isEarned);
  const gross=earned.reduce((a,r)=>a+Number(r.gross),0),share=earned.reduce((a,r)=>a+Number(r.share||0),0),net=gross-share;
- const cancelledInPeriod=countUniqueCancelled(items);
- $('cancelledTotal').textContent=String(cancelledInPeriod);
+ const cancelledKeys=new Set();
+ items.filter(r=>r.status==='cancelled').forEach(r=>cancelledKeys.add(r.googleEventId?`google:${r.googleEventId}`:`local:${r.id}`));
+ $('cancelledTotal').textContent=String(cancelledKeys.size);
  $('netTotal').textContent=money(net);$('grossTotal').textContent=money(gross);$('shareTotal').textContent=money(share);$('netNote').textContent=earned.length+' gerçekleşen görüşme';
  $('periodLabel').textContent=custom?`${from.split('-').reverse().join('.')} – ${to.split('-').reverse().join('.')}`:range==='month'?'Bu ay':'Son 7 gün';
  $('chartCaption').textContent=range==='month'&&!custom?'Bu ay':custom?'Seçili dönem':'Son 7 gün';
  drawChart(earned,from,to);
  $('sourceSummary').innerHTML=['R','B','K'].map(code=>{let a=earned.filter(r=>r.source===code),g=a.reduce((s,r)=>s+Number(r.gross),0),sh=a.reduce((s,r)=>s+Number(r.share||0),0);let label={R:'Reklamdan gelen',B:'Bireysel danışan',K:'Kurumdan gelen'}[code];return `<div class="summary-row"><div class="avatar">${code}</div><div class="row-main"><div class="row-name">${label}</div><div class="row-meta">${a.length} görüşme · Kurum payı ${money(sh)}</div></div><div class="row-end"><div class="row-value">${money(g-sh)}</div><div class="row-sub">Sana kalan</div></div></div>`}).join('');
  let q=($('search').value||'').toLocaleLowerCase('tr'),sorted=[...records].sort((a,b)=>((b.date||'')+(b.time||'')).localeCompare((a.date||'')+(a.time||''))),visible=sorted.filter(r=>((r.name||'')+' '+(r.title||'')).toLocaleLowerCase('tr').includes(q));
- const cancelledCount=countUniqueCancelled(records);
+ const cancelledCount=records.filter(r=>r.status==='cancelled').length;
  $('recordCount').textContent=records.length+' kayıt · '+cancelledCount+' iptal';
  $('recordsList').innerHTML=visible.length?visible.map(r=>`<div class="meeting-row"><button class="list-button" data-edit="${r.id}"><div class="avatar">${r.source||'·'}</div><div class="row-main"><div class="row-name">${esc(r.name||r.title)}</div><div class="row-meta">${String(r.date||'').split('-').reverse().join('.')} · ${r.time||'Saat belirtilmedi'} · <span class="badge ${r.status==='completed'?'done':r.status==='cancelled'?'cancel':''}">${statusText(r.status)}</span></div></div><div class="row-end"><div class="row-value">${r.gross?money(r.gross):'—'}</div><div class="row-sub">${r.gross?`Net ${money(Number(r.gross)-Number(r.share||0))}`:'Hesap dışı'}</div></div></button></div>`).join(''):'<div class="empty">Henüz kayıt yok. Yeni kayıt ekleyebilirsin.</div>';
  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openModal(b.dataset.edit));
@@ -492,35 +477,54 @@ async function initGoogleCalendar() {
   }
 }
 function parseTherapioEvent(ev) {
-  const rawTitle=(ev.summary||'Başlıksız etkinlik').trim();
-  // Google'ın kendi cancelled durumundaki etkinlikleri içe aktarma.
-  const googleCancelled=ev.status==='cancelled'||/^cancelled\s*:/i.test(rawTitle);
-  // Gri renk VEYA başlığın herhangi bir yerinde 'iptal' yazması iptal sayılır.
-  const userCancelled=/iptal/i.test(rawTitle);
-  const title=rawTitle.replace(/^iptal\s*[-–—:]\s*/i,'').trim();
-  const parts=title.split(/\s*[-–—]\s*/).map(x=>x.trim());
-  const source=(parts[0]||'').toUpperCase();
-  const titleValid=['R','B','K'].includes(source)&&parts.length>=3&&!!parts[1]&&/^\d+$/.test(parts[2])&&!/^\d{1,2}[:.]\d{2}/.test(parts[1]);
-  const name=titleValid?parts[1].replace(/\s+/g,' ').trim():'';
-  const sessionNumber=titleValid?Number(parts[2]):null;
-  const rateText=titleValid&&parts.length>=5?parts[parts.length-1].replace('%','').trim():'';
-  const parsedRate=rateText!==''&&/^\d+(?:[.,]\d+)?$/.test(rateText)?Number(rateText.replace(',','.')):null;
-  const rate=parsedRate!==null&&parsedRate>=0&&parsedRate<=100?parsedRate:null;
-  const feeParts=titleValid&&parts.length>=4?(rate!==null?parts.slice(3,-1):parts.slice(3)):[];
-  const feeText=feeParts.join('').replace(/[^\d.,]/g,'');
-  const gross=feeText?Number(feeText.replace(/\./g,'').replace(',','.')):0;
-  const colorId=String(ev.colorId||'');
-  const isGrey=colorId==='8';
-  const isRed=colorId==='11';
-  const isCancelled=!googleCancelled&&(isGrey||userCancelled);
-  // Google'ın kendi iptalleri hariç; kırmızı tamamlandı, gri veya başlığında iptal yazan iptal.
-  const colorValid=!googleCancelled&&(isRed||isCancelled);
-  const startValue=ev.start&&(ev.start.dateTime||ev.start.date)||(ev.originalStartTime&&(ev.originalStartTime.dateTime||ev.originalStartTime.date));
-  const startDate=startValue?new Date(startValue):new Date();
-  const date=startValue&&ev.start&&ev.start.date?ev.start.date:(startValue&&ev.originalStartTime&&ev.originalStartTime.date?ev.originalStartTime.date:`${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2,'0')}-${String(startDate.getDate()).padStart(2,'0')}`);
-  const time=(ev.start&&ev.start.dateTime)||(ev.originalStartTime&&ev.originalStartTime.dateTime)?`${String(startDate.getHours()).padStart(2,'0')}:${String(startDate.getMinutes()).padStart(2,'0')}`:'09:00';
-  const status=isCancelled?'cancelled':(isRed?'completed':'ignored');
-  return{title:rawTitle,name,source:titleValid?source:'',sessionNumber,gross,rate,date,time,status,valid:titleValid&&colorValid,titleValid,colorId};
+  const rawTitle = String(ev.summary || 'Başlıksız etkinlik').trim();
+  const normalizedTitle = rawTitle.normalize('NFKC').toLocaleLowerCase('tr-TR');
+
+  // Google'ın kendi silinmiş/iptal edilmiş etkinlikleri uygulama iptali değildir.
+  const googleCancelled = ev.status === 'cancelled' || /^cancelled\s*:/i.test(rawTitle);
+  const colorId = String(ev.colorId || '');
+  const isGrey = colorId === '8';
+  const isRed = colorId === '11';
+
+  // İptal kelimesi başta, ortada veya sonda olabilir. Her durumda tek bir iptal işaretidir.
+  const titleHasCancelMarker = normalizedTitle.includes('iptal');
+  const isCancelled = !googleCancelled && (isGrey || titleHasCancelMarker);
+
+  // Başlıktaki iptal işaretini ayır; geriye kalan R/B/K - Danışan - Seans No yapısını çöz.
+  // Böylece 'iptal-K-...', 'K - iptal - ...' ve 'K - ... - iptal' aynı şekilde okunur.
+  const parts = rawTitle
+    .replace(/^cancelled\s*:\s*/i, '')
+    .split(/\s*[-–—]\s*/)
+    .map(x => x.trim())
+    .filter(x => x && !x.normalize('NFKC').toLocaleLowerCase('tr-TR').includes('iptal'));
+
+  const source = (parts[0] || '').toUpperCase();
+  const titleValid = ['R', 'B', 'K'].includes(source) && parts.length >= 3 &&
+    !!parts[1] && /^\d+$/.test(parts[2]) && !/^\d{1,2}[:.]\d{2}/.test(parts[1]);
+  const name = titleValid ? parts[1].replace(/\s+/g, ' ').trim() : '';
+  const sessionNumber = titleValid ? Number(parts[2]) : null;
+
+  const tail = titleValid ? parts.slice(3) : [];
+  const last = tail.length ? tail[tail.length - 1].replace('%', '').trim() : '';
+  const possibleRate = /^\d+(?:[.,]\d+)?$/.test(last) ? Number(last.replace(',', '.')) : null;
+  const rate = possibleRate !== null && possibleRate >= 0 && possibleRate <= 100 && tail.length >= 2
+    ? possibleRate : null;
+  const feeParts = rate !== null ? tail.slice(0, -1) : tail;
+  const feeText = feeParts.join('').replace(/[^\d.,]/g, '');
+  const gross = feeText ? Number(feeText.replace(/\./g, '').replace(',', '.')) : 0;
+
+  const startValue = (ev.start && (ev.start.dateTime || ev.start.date)) ||
+    (ev.originalStartTime && (ev.originalStartTime.dateTime || ev.originalStartTime.date));
+  const startDate = startValue ? new Date(startValue) : new Date();
+  const date = startValue && ev.start && ev.start.date ? ev.start.date :
+    (startValue && ev.originalStartTime && ev.originalStartTime.date ? ev.originalStartTime.date :
+      `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`);
+  const dateTimeValue = (ev.start && ev.start.dateTime) || (ev.originalStartTime && ev.originalStartTime.dateTime);
+  const time = dateTimeValue ? `${String(startDate.getHours()).padStart(2, '0')}:${String(startDate.getMinutes()).padStart(2, '0')}` : '09:00';
+
+  const status = googleCancelled ? 'ignored' : (isCancelled ? 'cancelled' : (isRed ? 'completed' : 'ignored'));
+  const valid = !googleCancelled && titleValid && (isRed || isCancelled);
+  return { title: rawTitle, name, source: titleValid ? source : '', sessionNumber, gross, rate, date, time, status, valid, titleValid, colorId };
 }
 function cleanupNumberedDuplicateClients(){
  // Eski içe aktarımlarda "Ad Soyad - 12" biçiminde açılmış profilleri
@@ -601,7 +605,7 @@ function refreshLatestClientFees(){
 async function syncGoogleCalendar() {
   calendarStatus('Google Takvim okunuyor…');
   const now = new Date();
-  const past = new Date(now); past.setMonth(past.getMonth() - 6);
+  const past = new Date('2000-01-01T00:00:00.000Z'); // Özel tarih aralıkları için geçmiş kayıtları da eşitle.
   const future = new Date(now); future.setFullYear(future.getFullYear() + 1);
   let pageToken, imported = 0, skipped = 0;
   do {
