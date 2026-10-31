@@ -264,11 +264,27 @@ let range='7',custom=null,theme=localStorage.getItem('terapi-theme')||'rose';doc
 let clientPeriod='week',clientSourceFilter='all',showInactiveClients=false;
 function bounds(){if(custom)return custom;let now=new Date();if(range==='month')return{from:iso(new Date(now.getFullYear(),now.getMonth(),1)),to:iso(new Date(now.getFullYear(),now.getMonth()+1,0))};return{from:iso(shift(now,-6)),to:iso(now)}}
 function isEarned(r){return r.status==='completed'&&Number(r.gross)>0}
+// İptal sayımında yalnızca gri veya başlığında 'iptal' geçen geçerli seansları al.
+// Google Calendar'ın kendi status='cancelled' kayıtları sayılmaz.
+function isCancelledSessionRecord(r){
+ if(!r||r.status!=='cancelled')return false;
+ const title=String(r.title||'').trim();
+ if(/^cancelled\s*:/i.test(title))return false;
+ return String(r.colorId||'')==='8'||/iptal/i.test(title);
+}
+function countUniqueCancelled(list){
+ const unique=new Map();
+ list.filter(isCancelledSessionRecord).forEach(r=>{
+  const key=r.googleEventId?`g:${r.googleEventId}`:`l:${r.id}`;
+  if(!unique.has(key))unique.set(key,r);
+ });
+ return unique.size;
+}
 function statusText(s){return({completed:'Gerçekleşti',scheduled:'Planlandı',cancelled:'İptal edildi',noshow:'Gelmedi'})[s]||s}
 function render(){
  const {from,to}=bounds(),items=records.filter(r=>r.date>=from&&r.date<=to),earned=items.filter(isEarned);
  const gross=earned.reduce((a,r)=>a+Number(r.gross),0),share=earned.reduce((a,r)=>a+Number(r.share||0),0),net=gross-share;
- const cancelledInPeriod=items.filter(r=>r.status==='cancelled').length;
+ const cancelledInPeriod=countUniqueCancelled(items);
  $('cancelledTotal').textContent=String(cancelledInPeriod);
  $('netTotal').textContent=money(net);$('grossTotal').textContent=money(gross);$('shareTotal').textContent=money(share);$('netNote').textContent=earned.length+' gerçekleşen görüşme';
  $('periodLabel').textContent=custom?`${from.split('-').reverse().join('.')} – ${to.split('-').reverse().join('.')}`:range==='month'?'Bu ay':'Son 7 gün';
@@ -276,7 +292,7 @@ function render(){
  drawChart(earned,from,to);
  $('sourceSummary').innerHTML=['R','B','K'].map(code=>{let a=earned.filter(r=>r.source===code),g=a.reduce((s,r)=>s+Number(r.gross),0),sh=a.reduce((s,r)=>s+Number(r.share||0),0);let label={R:'Reklamdan gelen',B:'Bireysel danışan',K:'Kurumdan gelen'}[code];return `<div class="summary-row"><div class="avatar">${code}</div><div class="row-main"><div class="row-name">${label}</div><div class="row-meta">${a.length} görüşme · Kurum payı ${money(sh)}</div></div><div class="row-end"><div class="row-value">${money(g-sh)}</div><div class="row-sub">Sana kalan</div></div></div>`}).join('');
  let q=($('search').value||'').toLocaleLowerCase('tr'),sorted=[...records].sort((a,b)=>((b.date||'')+(b.time||'')).localeCompare((a.date||'')+(a.time||''))),visible=sorted.filter(r=>((r.name||'')+' '+(r.title||'')).toLocaleLowerCase('tr').includes(q));
- const cancelledCount=records.filter(r=>r.status==='cancelled').length;
+ const cancelledCount=countUniqueCancelled(records);
  $('recordCount').textContent=records.length+' kayıt · '+cancelledCount+' iptal';
  $('recordsList').innerHTML=visible.length?visible.map(r=>`<div class="meeting-row"><button class="list-button" data-edit="${r.id}"><div class="avatar">${r.source||'·'}</div><div class="row-main"><div class="row-name">${esc(r.name||r.title)}</div><div class="row-meta">${String(r.date||'').split('-').reverse().join('.')} · ${r.time||'Saat belirtilmedi'} · <span class="badge ${r.status==='completed'?'done':r.status==='cancelled'?'cancel':''}">${statusText(r.status)}</span></div></div><div class="row-end"><div class="row-value">${r.gross?money(r.gross):'—'}</div><div class="row-sub">${r.gross?`Net ${money(Number(r.gross)-Number(r.share||0))}`:'Hesap dışı'}</div></div></button></div>`).join(''):'<div class="empty">Henüz kayıt yok. Yeni kayıt ekleyebilirsin.</div>';
  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openModal(b.dataset.edit));
