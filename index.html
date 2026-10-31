@@ -75,6 +75,13 @@ h1{font-size:27px;letter-spacing:-1px;line-height:1.15;margin:0 0 6px;font-weigh
 #earningsPage .chart{height:190px}
 #earningsPage .legend{padding-top:5px}
 #earningsPage .rangebar{margin-bottom:12px}
+#earningsPage .forecast-summary{margin:0 0 14px;padding:13px 15px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2,var(--card))}
+#earningsPage .forecast-summary-title{font-size:12px;font-weight:750;margin-bottom:10px}
+#earningsPage .forecast-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+#earningsPage .forecast-summary-grid span{display:block;font-size:10px;color:var(--muted);margin-bottom:4px}
+#earningsPage .forecast-summary-grid strong{font-size:14px;overflow-wrap:anywhere}
+#earningsPage .forecast-summary-grid div:last-child strong{color:var(--accent-dark)}
+@media(max-width:420px){#earningsPage .forecast-summary-grid{gap:5px}#earningsPage .forecast-summary-grid strong{font-size:12px}}
 @media(max-width:850px){#earningsPage .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){#earningsPage .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}#earningsPage .kpi{padding:13px 12px}#earningsPage .kpi.featured{grid-column:span 2}#earningsPage .chart{height:178px}#earningsPage .panel{padding:15px}}
 @media(max-width:650px){.app{padding:18px 15px 100px}header{margin-bottom:25px}.kpis{grid-template-columns:1fr 1fr;gap:8px}.kpi.featured{grid-column:span 2}.kpi{padding:14px}.k-value{font-size:22px}.panel{padding:15px}.chart{height:155px}.head-btn{padding:9px 10px}.date-fields input{width:0}.two{gap:8px}}
@@ -178,6 +185,9 @@ html,body{width:100%;max-width:100%;overflow-x:hidden}
 #earningsPage .period-card .period-dates{font-size:10px;color:var(--muted);margin-bottom:3px}
 #earningsPage .period-card .cal-total{font-size:13px;margin:0}
 #earningsPage .period-card .cal-line{font-size:11px}
+#earningsPage .period-forecast{margin-top:9px;padding-top:9px;border-top:1px dashed var(--line)}
+#earningsPage .period-forecast>strong{display:block;font-size:10px;margin-bottom:7px;color:var(--accent-dark)}
+#earningsPage .period-forecast .detail-grid{margin-top:0}
 @media(max-width:650px){
  #earningsPage .earnings-calendar.mobile-week{grid-template-columns:minmax(0,1fr) !important}
  #earningsPage .earnings-calendar.mobile-week .period-card{display:grid;grid-template-columns:82px repeat(3,minmax(0,1fr));align-items:center;gap:5px;padding:12px 10px}
@@ -244,6 +254,14 @@ html,body{width:100%;max-width:100%;overflow-x:hidden}
   <div class="kpi"><div class="k-label">Danışanlardan alınan</div><div class="k-value" id="grossTotal">₺0</div><div class="k-note">Toplam görüşme ücreti</div></div>
   <div class="kpi"><div class="k-label">Kurum payı</div><div class="k-value" id="shareTotal">₺0</div><div class="k-note">Kuruma giden toplam kesinti</div></div>
   <div class="kpi"><div class="k-label">İptal seans</div><div class="k-value" id="cancelledTotal">0</div><div class="k-note">Seçili dönemde iptal edilen</div></div>
+ </div>
+ <div class="forecast-summary" id="forecastSummary" hidden>
+  <div class="forecast-summary-title">Planlanan seanslardan beklenen gelir</div>
+  <div class="forecast-summary-grid">
+   <div><span>Planlanan brüt</span><strong id="forecastGross">₺0</strong></div>
+   <div><span>Kurum kesintisi</span><strong id="forecastShare">₺0</strong></div>
+   <div><span>Beklenen net</span><strong id="forecastNet">₺0</strong></div>
+  </div>
  </div>
  <span id="chartCaption" hidden></span>
  <section class="panel viz-panel" id="calendarViz">
@@ -380,10 +398,20 @@ let clientPeriod='week',clientSourceFilter='all',showInactiveClients=false;
 let calendarView='week',calendarAnchor=new Date();
 function bounds(){if(custom)return custom;let now=new Date();if(range==='month')return{from:iso(new Date(now.getFullYear(),now.getMonth(),1)),to:iso(new Date(now.getFullYear(),now.getMonth()+1,0))};return{from:iso(shift(now,-6)),to:iso(now)}}
 function isEarned(r){return r.status==='completed'&&Number(r.gross)>0}
+function isForecast(r){return r.status==='scheduled'&&r.date>=iso(today)&&Number(r.gross)>0}
+function forecastTotals(items){
+ const planned=items.filter(isForecast);
+ const gross=planned.reduce((sum,r)=>sum+Number(r.gross||0),0);
+ const share=planned.reduce((sum,r)=>sum+(r.source==='K'?Number(r.share||0):0),0);
+ return {gross,share,net:gross-share,count:planned.length};
+}
 function statusText(s){return({completed:'Gerçekleşti',scheduled:'Planlandı',cancelled:'İptal edildi',noshow:'Gelmedi'})[s]||s}
 function render(){
  const {from,to}=bounds(),items=records.filter(r=>r.date>=from&&r.date<=to),earned=items.filter(isEarned);
  const gross=earned.reduce((a,r)=>a+Number(r.gross||0),0),share=earned.reduce((a,r)=>a+(r.source==='K'?Number(r.share||0):0),0),net=gross-share;
+ const forecast=forecastTotals(items);
+ $('forecastSummary').hidden=forecast.count===0;
+ $('forecastGross').textContent=money(forecast.gross);$('forecastShare').textContent=money(forecast.share);$('forecastNet').textContent=money(forecast.net);
  const cancelledKeys=new Set();
  items.filter(r=>r.status==='cancelled').forEach(r=>cancelledKeys.add(r.googleEventId?`google:${r.googleEventId}`:`local:${r.id}`));
  $('cancelledTotal').textContent=String(cancelledKeys.size);
@@ -491,10 +519,16 @@ $('clientSearch').oninput=renderClients;
 
 function sumPeriod(from,to){
  const a=records.filter(r=>r.date>=from&&r.date<=to&&isEarned(r));
+ const planned=records.filter(r=>r.date>=from&&r.date<=to&&isForecast(r));
  const gross=a.reduce((v,r)=>v+Number(r.gross||0),0),share=a.reduce((v,r)=>v+(r.source==='K'?Number(r.share||0):0),0);
- return {gross,share,net:gross-share,count:a.length};
+ const forecastGross=planned.reduce((v,r)=>v+Number(r.gross||0),0),forecastShare=planned.reduce((v,r)=>v+(r.source==='K'?Number(r.share||0):0),0);
+ return {gross,share,net:gross-share,count:a.length,forecastGross,forecastShare,forecastNet:forecastGross-forecastShare,forecastCount:planned.length};
 }
-function detailMarkup(v,showShare){return `<div class="detail-grid"><div class="detail-item"><span>Toplam kazanç</span><strong>${money(v.gross)}</strong></div>${showShare?`<div class="detail-item"><span>Kurum kesintisi</span><strong>${money(v.share)}</strong></div>`:''}<div class="detail-item"><span>Net kalan</span><strong style="color:var(--accent-dark)">${money(v.net)}</strong></div></div>`}
+function detailMarkup(v,showShare){
+ const actual=`<div class="detail-grid"><div class="detail-item"><span>Gerçekleşen brüt</span><strong>${money(v.gross)}</strong></div>${showShare?`<div class="detail-item"><span>Kurum kesintisi</span><strong>${money(v.share)}</strong></div>`:''}<div class="detail-item"><span>Gerçekleşen net</span><strong style="color:var(--accent-dark)">${money(v.net)}</strong></div></div>`;
+ const forecast=v.forecastCount?`<div class="period-forecast"><strong>Planlanan seanslar (${v.forecastCount})</strong><div class="detail-grid"><div class="detail-item"><span>Beklenen brüt</span><strong>${money(v.forecastGross)}</strong></div>${showShare?`<div class="detail-item"><span>Beklenen kesinti</span><strong>${money(v.forecastShare)}</strong></div>`:''}<div class="detail-item"><span>Beklenen net</span><strong style="color:var(--accent-dark)">${money(v.forecastNet)}</strong></div></div></div>`:'';
+ return actual+forecast;
+}
 function calendarBounds(){const d=new Date(calendarAnchor);d.setHours(12,0,0,0);if(calendarView==='day')return{from:iso(d),to:iso(d)};if(calendarView==='week'){const monday=shift(d,-((d.getDay()+6)%7));return{from:iso(monday),to:iso(shift(monday,6))}}return{from:iso(new Date(d.getFullYear(),d.getMonth(),1)),to:iso(new Date(d.getFullYear(),d.getMonth()+1,0))}}
 
 
@@ -525,19 +559,19 @@ function renderCalendar(){
   for(let i=5;i>=0;i--){
    const start=shift(selectedStart,-7*i),end=shift(start,6),key=iso(start);
    const v=sumPeriod(key,iso(end)),info=isoWeekInfo(start),selected=key===iso(selectedStart);
-   html+=`<button class="calendar-cell period-card ${selected?'selected':''} ${v.gross?'':'no-income'}" data-period-start="${key}"><span class="calendar-day">CW${String(info.week).padStart(2,'0')} <small>${info.year}</small></span><span class="period-dates">${start.toLocaleDateString('tr-TR',{day:'numeric',month:'short'})} – ${end.toLocaleDateString('tr-TR',{day:'numeric',month:'short'})}</span><span class="cal-total"><span class="metric-label">Toplam</span>${money(v.gross)}</span>${showShare?`<span class="cal-line"><span class="metric-label">Kesinti</span>${money(v.share)}</span>`:''}<span class="cal-line cal-net"><span class="metric-label">Net kalan</span>${money(v.net)}</span></button>`;
+   html+=`<button class="calendar-cell period-card ${selected?'selected':''} ${v.gross?'':'no-income'}" data-period-start="${key}"><span class="calendar-day">CW${String(info.week).padStart(2,'0')} <small>${info.year}</small></span><span class="period-dates">${start.toLocaleDateString('tr-TR',{day:'numeric',month:'short'})} – ${end.toLocaleDateString('tr-TR',{day:'numeric',month:'short'})}</span><span class="cal-total"><span class="metric-label">Toplam</span>${money(v.gross)}</span>${showShare?`<span class="cal-line"><span class="metric-label">Kesinti</span>${money(v.share)}</span>`:''}<span class="cal-line cal-net"><span class="metric-label">Net kalan</span>${money(v.net)}</span>${v.forecastCount?`<span class="cal-line"><span class="metric-label">Planlanan net</span>${money(v.forecastNet)}</span>`:''}</button>`;
   }
   root.style.gridTemplateColumns='1fr';
   detail.innerHTML=`<strong>Seçili hafta · CW${String(isoWeekInfo(selectedStart).week).padStart(2,'0')}</strong>${detailMarkup(sumPeriod(iso(selectedStart),iso(shift(selectedStart,6))),showShare)}`;
  }else{
   const selectedMonth=new Date(calendarAnchor.getFullYear(),calendarAnchor.getMonth(),1,12);
-  // Show six consecutive months ending with the selected month.
-  for(let i=5;i>=0;i--){
-   const start=new Date(selectedMonth.getFullYear(),selectedMonth.getMonth()-i,1,12);
+  // Show four prior months, the selected month, and the following month.
+  for(let offset=-4;offset<=1;offset++){
+   const start=new Date(selectedMonth.getFullYear(),selectedMonth.getMonth()+offset,1,12);
    const end=new Date(start.getFullYear(),start.getMonth()+1,0,12);
-   const key=iso(start),v=sumPeriod(key,iso(end)),selected=i===0;
+   const key=iso(start),v=sumPeriod(key,iso(end)),selected=offset===0;
    const label=start.toLocaleDateString('tr-TR',{month:'long',year:'numeric'});
-   html+=`<button class="calendar-cell period-card ${selected?'selected':''} ${v.gross?'':'no-income'}" data-period-start="${key}"><span class="calendar-day">${label}</span><span class="cal-total"><span class="metric-label">Toplam</span>${money(v.gross)}</span>${showShare?`<span class="cal-line"><span class="metric-label">Kesinti</span>${money(v.share)}</span>`:''}<span class="cal-line cal-net"><span class="metric-label">Net kalan</span>${money(v.net)}</span></button>`;
+   html+=`<button class="calendar-cell period-card ${selected?'selected':''} ${v.gross?'':'no-income'}" data-period-start="${key}"><span class="calendar-day">${label}</span><span class="cal-total"><span class="metric-label">Toplam</span>${money(v.gross)}</span>${showShare?`<span class="cal-line"><span class="metric-label">Kesinti</span>${money(v.share)}</span>`:''}<span class="cal-line cal-net"><span class="metric-label">Net kalan</span>${money(v.net)}</span>${v.forecastCount?`<span class="cal-line"><span class="metric-label">Planlanan net</span>${money(v.forecastNet)}</span>`:''}</button>`;
   }
   root.style.gridTemplateColumns='repeat(2,minmax(0,1fr))';
   detail.innerHTML=`<strong>Seçili ay · ${calendarAnchor.toLocaleDateString('tr-TR',{month:'long',year:'numeric'})}</strong>${detailMarkup(sumPeriod(b.from,b.to),showShare)}`;
