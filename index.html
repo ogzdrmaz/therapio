@@ -717,8 +717,9 @@ function parseTherapioEvent(ev) {
   const dateTimeValue = (ev.start && ev.start.dateTime) || (ev.originalStartTime && ev.originalStartTime.dateTime);
   const time = dateTimeValue ? `${String(startDate.getHours()).padStart(2, '0')}:${String(startDate.getMinutes()).padStart(2, '0')}` : '09:00';
 
-  const status = googleCancelled ? 'ignored' : (isCancelled ? 'cancelled' : (isRed ? 'completed' : 'ignored'));
-  const valid = !googleCancelled && titleValid && (isRed || isCancelled);
+  const isFutureDate = date > iso(new Date());
+  const status = googleCancelled ? 'ignored' : (isCancelled ? 'cancelled' : (isFutureDate ? 'scheduled' : (isRed ? 'completed' : 'ignored')));
+  const valid = !googleCancelled && titleValid && (isRed || isCancelled || isFutureDate);
   return { title: rawTitle, name, source: titleValid ? source : '', sessionNumber, gross, rate, date, time, status, valid, titleValid, colorId };
 }
 function cleanupNumberedDuplicateClients(){
