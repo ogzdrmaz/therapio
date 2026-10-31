@@ -383,7 +383,7 @@ function isEarned(r){return r.status==='completed'&&Number(r.gross)>0}
 function statusText(s){return({completed:'Gerçekleşti',scheduled:'Planlandı',cancelled:'İptal edildi',noshow:'Gelmedi'})[s]||s}
 function render(){
  const {from,to}=bounds(),items=records.filter(r=>r.date>=from&&r.date<=to),earned=items.filter(isEarned);
- const gross=earned.reduce((a,r)=>a+Number(r.gross),0),share=earned.reduce((a,r)=>a+Number(r.share||0),0),net=gross-share;
+ const gross=earned.reduce((a,r)=>a+Number(r.gross||0),0),share=earned.reduce((a,r)=>a+(r.source==='K'?Number(r.share||0):0),0),net=gross-share;
  const cancelledKeys=new Set();
  items.filter(r=>r.status==='cancelled').forEach(r=>cancelledKeys.add(r.googleEventId?`google:${r.googleEventId}`:`local:${r.id}`));
  $('cancelledTotal').textContent=String(cancelledKeys.size);
@@ -391,7 +391,7 @@ function render(){
  $('periodLabel').textContent=custom?`${from.split('-').reverse().join('.')} – ${to.split('-').reverse().join('.')}`:range==='month'?'Bu ay':'Son 7 gün';
  $('chartCaption').textContent=range==='month'&&!custom?'Bu ay':custom?'Seçili dönem':'Son 7 gün';
  drawChart(earned,from,to);
- $('sourceSummary').innerHTML=['R','B','K'].map(code=>{let a=earned.filter(r=>r.source===code),g=a.reduce((s,r)=>s+Number(r.gross),0),sh=a.reduce((s,r)=>s+Number(r.share||0),0);let label={R:'Reklamdan gelen',B:'Bireysel danışan',K:'Kurumdan gelen'}[code];return `<div class="summary-row"><div class="avatar">${code}</div><div class="row-main"><div class="row-name">${label}</div><div class="row-meta">${a.length} görüşme · Kurum payı ${money(sh)}</div></div><div class="row-end"><div class="row-value">${money(g-sh)}</div><div class="row-sub">Sana kalan</div></div></div>`}).join('');
+ $('sourceSummary').innerHTML=['R','B','K'].map(code=>{let a=earned.filter(r=>r.source===code),g=a.reduce((s,r)=>s+Number(r.gross||0),0),sh=code==='K'?a.reduce((s,r)=>s+Number(r.share||0),0):0;let label={R:'Reklamdan gelen',B:'Bireysel danışan',K:'Kurumdan gelen'}[code];return `<div class="summary-row"><div class="avatar">${code}</div><div class="row-main"><div class="row-name">${label}</div><div class="row-meta">${a.length} görüşme · Kurum payı ${money(sh)}</div></div><div class="row-end"><div class="row-value">${money(g-sh)}</div><div class="row-sub">Sana kalan</div></div></div>`}).join('');
  let q=($('search').value||'').toLocaleLowerCase('tr'),sorted=[...records].sort((a,b)=>((b.date||'')+(b.time||'')).localeCompare((a.date||'')+(a.time||''))),visible=sorted.filter(r=>((r.name||'')+' '+(r.title||'')).toLocaleLowerCase('tr').includes(q));
  const cancelledCount=records.filter(r=>r.status==='cancelled').length;
  $('recordCount').textContent=records.length+' kayıt · '+cancelledCount+' iptal';
@@ -491,7 +491,7 @@ $('clientSearch').oninput=renderClients;
 
 function sumPeriod(from,to){
  const a=records.filter(r=>r.date>=from&&r.date<=to&&isEarned(r));
- const gross=a.reduce((v,r)=>v+Number(r.gross||0),0),share=a.reduce((v,r)=>v+Number(r.share||0),0);
+ const gross=a.reduce((v,r)=>v+Number(r.gross||0),0),share=a.reduce((v,r)=>v+(r.source==='K'?Number(r.share||0):0),0);
  return {gross,share,net:gross-share,count:a.length};
 }
 function detailMarkup(v,showShare){return `<div class="detail-grid"><div class="detail-item"><span>Toplam kazanç</span><strong>${money(v.gross)}</strong></div>${showShare?`<div class="detail-item"><span>Kurum kesintisi</span><strong>${money(v.share)}</strong></div>`:''}<div class="detail-item"><span>Net kalan</span><strong style="color:var(--accent-dark)">${money(v.net)}</strong></div></div>`}
