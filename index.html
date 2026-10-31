@@ -273,7 +273,8 @@ function render(){
  drawChart(earned,from,to);
  $('sourceSummary').innerHTML=['R','B','K'].map(code=>{let a=earned.filter(r=>r.source===code),g=a.reduce((s,r)=>s+Number(r.gross),0),sh=a.reduce((s,r)=>s+Number(r.share||0),0);let label={R:'Reklamdan gelen',B:'Bireysel danışan',K:'Kurumdan gelen'}[code];return `<div class="summary-row"><div class="avatar">${code}</div><div class="row-main"><div class="row-name">${label}</div><div class="row-meta">${a.length} görüşme · Kurum payı ${money(sh)}</div></div><div class="row-end"><div class="row-value">${money(g-sh)}</div><div class="row-sub">Sana kalan</div></div></div>`}).join('');
  let q=($('search').value||'').toLocaleLowerCase('tr'),sorted=[...records].sort((a,b)=>((b.date||'')+(b.time||'')).localeCompare((a.date||'')+(a.time||''))),visible=sorted.filter(r=>((r.name||'')+' '+(r.title||'')).toLocaleLowerCase('tr').includes(q));
- $('recordCount').textContent=records.length+' kayıt';
+ const cancelledCount=records.filter(r=>r.status==='cancelled').length;
+ $('recordCount').textContent=records.length+' kayıt · '+cancelledCount+' iptal';
  $('recordsList').innerHTML=visible.length?visible.map(r=>`<div class="meeting-row"><button class="list-button" data-edit="${r.id}"><div class="avatar">${r.source||'·'}</div><div class="row-main"><div class="row-name">${esc(r.name||r.title)}</div><div class="row-meta">${String(r.date||'').split('-').reverse().join('.')} · ${r.time||'Saat belirtilmedi'} · <span class="badge ${r.status==='completed'?'done':r.status==='cancelled'?'cancel':''}">${statusText(r.status)}</span></div></div><div class="row-end"><div class="row-value">${r.gross?money(r.gross):'—'}</div><div class="row-sub">${r.gross?`Net ${money(Number(r.gross)-Number(r.share||0))}`:'Hesap dışı'}</div></div></button></div>`).join(''):'<div class="empty">Henüz kayıt yok. Yeni kayıt ekleyebilirsin.</div>';
  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openModal(b.dataset.edit));
  let excluded=records.filter(r=>!r.source||!Number(r.gross));$('excludedCount').textContent=excluded.length;
@@ -459,9 +460,11 @@ async function initGoogleCalendar() {
   }
 }
 function parseTherapioEvent(ev) {
-  const title=(ev.summary||'Başlıksız etkinlik').trim();
+  const rawTitle=(ev.summary||'Başlıksız etkinlik').trim();
+  // Google Takvim bazı iptal kayıtlarını başlıkta "cancelled:" önekiyle döndürür.
+  const titleCancelled=/^cancelled\s*:\s*/i.test(rawTitle);
+  const title=rawTitle.replace(/^cancelled\s*:\s*/i,'').trim();
   // Biçim: Kaynak - Danışan Ad Soyad - Seans No - Ücret
-  // Ayraçların çevresindeki boşluklar zorunlu değildir.
   const parts=title.split(/\s*[-–—]\s*/).map(x=>x.trim());
   const source=(parts[0]||'').toUpperCase();
   const valid=['R','B','K'].includes(source)&&parts.length>=3&&!!parts[1]&&/^\d+$/.test(parts[2]);
@@ -469,12 +472,12 @@ function parseTherapioEvent(ev) {
   const sessionNumber=valid?Number(parts[2]):null;
   const feeText=valid&&parts.length>=4?parts.slice(3).join('').replace(/[^\d.,]/g,''):'';
   const gross=feeText?Number(feeText.replace(/\./g,'').replace(',','.')):0;
-  const startValue=ev.start&&(ev.start.dateTime||ev.start.date);
+  const startValue=ev.start&&(ev.start.dateTime||ev.start.date) || (ev.originalStartTime&&(ev.originalStartTime.dateTime||ev.originalStartTime.date));
   const startDate=startValue?new Date(startValue):new Date();
-  const date=startValue&&ev.start.date?ev.start.date:`${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2,'0')}-${String(startDate.getDate()).padStart(2,'0')}`;
-  const time=ev.start&&ev.start.dateTime?`${String(startDate.getHours()).padStart(2,'0')}:${String(startDate.getMinutes()).padStart(2,'0')}`:'09:00';
-  const status=ev.status==='cancelled'?'cancelled':(startDate.getTime()<Date.now()?'completed':'scheduled');
-  return{title,name,source:valid?source:'',sessionNumber,gross,date,time,status};
+  const date=startValue&&ev.start&&ev.start.date?ev.start.date:(startValue&&ev.originalStartTime&&ev.originalStartTime.date?ev.originalStartTime.date:`${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2,'0')}-${String(startDate.getDate()).padStart(2,'0')}`);
+  const time=(ev.start&&ev.start.dateTime)|| (ev.originalStartTime&&ev.originalStartTime.dateTime)?`${String(startDate.getHours()).padStart(2,'0')}:${String(startDate.getMinutes()).padStart(2,'0')}`:'09:00';
+  const status=(ev.status==='cancelled'||titleCancelled)?'cancelled':(startDate.getTime()<Date.now()?'completed':'scheduled');
+  return{title:rawTitle,name,source:valid?source:'',sessionNumber,gross,date,time,status};
 }
 function cleanupNumberedDuplicateClients(){
  // Eski içe aktarımlarda "Ad Soyad - 12" biçiminde açılmış profilleri
@@ -505,6 +508,25 @@ function cleanupNumberedDuplicateClients(){
  persistClients();persist();
 }
 
+function ensureProfilesForRecordedClients(){
+  const byKey=new Map(clients.map(c=>[clientKey(c.name),c]));
+  records.forEach(r=>{
+    const name=String(r.name||'').trim();
+    if(!name) return;
+    const key=clientKey(name);
+    let profile=byKey.get(key);
+    if(!profile){
+      const source=['R','B','K'].includes(r.source)?r.source:'';
+      profile={name,source,fee:Number(r.gross||0),rate:0,rateMode:'percent'};
+      clients.push(profile);byKey.set(key,profile);
+    } else {
+      if(!profile.source&&['R','B','K'].includes(r.source)) profile.source=r.source;
+      if(!Number(profile.fee)&&Number(r.gross)>0) profile.fee=Number(r.gross);
+    }
+  });
+  persistClients();
+}
+
 function refreshLatestClientFees(){
   // Profil ücreti, takvimdeki en son ücret girilmiş seansın ücretidir.
   // Geçmiş seansların kendi gross/share kayıtlarına dokunulmaz.
@@ -533,9 +555,11 @@ async function syncGoogleCalendar() {
       pageToken
     });
     for (const ev of (response.result.items || [])) {
-      if (!ev.id || !ev.start) continue;
-      const parsed = parseTherapioEvent(ev);
+      if (!ev.id) continue;
       const existing = records.find(r => r.googleEventId === ev.id);
+      if (!ev.start && !ev.originalStartTime && !existing) continue;
+      const parsed = parseTherapioEvent(ev);
+      if (!ev.start && !ev.originalStartTime && existing) { parsed.date=existing.date; parsed.time=existing.time; }
       if (existing) {
         existing.title = parsed.title;
         existing.name = parsed.name;
@@ -571,6 +595,7 @@ async function syncGoogleCalendar() {
     pageToken = response.result.nextPageToken;
   } while (pageToken);
   cleanupNumberedDuplicateClients();
+  ensureProfilesForRecordedClients();
   refreshLatestClientFees();
   persistClients();persist();
   render();
@@ -641,6 +666,7 @@ calendarButton.onclick = () => {
 };
 
 cleanupNumberedDuplicateClients();
+ensureProfilesForRecordedClients();
 refreshLatestClientFees();
 persistClients();
 try{render()}catch(startupError){console.error('Therapio başlangıç görüntüleme hatası:',startupError);const notice=document.createElement('div');notice.style='position:fixed;z-index:99999;left:12px;right:12px;bottom:100px;background:#fff1f0;color:#8b3030;padding:12px;border-radius:12px;font-size:13px';notice.textContent='Ekran verileri yüklenirken hata oluştu. Sayfayı yenileyin; sorun sürerse destek için hata kodu: '+(startupError.message||startupError);document.body.appendChild(notice)}
