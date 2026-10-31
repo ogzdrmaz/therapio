@@ -145,7 +145,7 @@ html,body{width:100%;max-width:100%;overflow-x:hidden}
 
 <section class="page" id="clientsPage">
  <h1>Danışanlar</h1><p class="lead">Danışan profillerini, güncel ücretlerini ve kurum kesintilerini yönet.</p>
- <div class="period-switch"><button class="period-choice active" data-client-period="week">Bu hafta</button><button class="period-choice" data-client-period="month">Bu ay</button></div>
+ <div class="period-switch"><button class="period-choice active" data-client-period="week">Bu hafta</button><button class="period-choice" data-client-period="month">Bu ay</button><button class="period-choice" data-client-period="year">Bu yıl</button><button class="period-choice" data-client-period="custom">Tarih aralığı</button></div><div class="date-fields" id="clientDateFields"><input type="date" id="clientDateFrom" aria-label="Başlangıç tarihi"><input type="date" id="clientDateTo" aria-label="Bitiş tarihi"></div>
  <div class="client-overview"><div class="active-total"><div><span class="overview-kicker" id="clientPeriodTitle">BU HAFTA AKTİF DANIŞAN</span><strong id="activeClientTotal">0</strong><small>benzersiz danışan</small></div><span class="active-mark">●</span></div><div class="source-counts"><div class="source-count r"><span>Reklam</span><strong id="countR">0</strong></div><div class="source-count b"><span>Bireysel</span><strong id="countB">0</strong></div><div class="source-count k"><span>Kurum</span><strong id="countK">0</strong></div></div></div>
  <div class="client-tools"><input class="search" id="clientSearch" placeholder="Danışan ara…"><button class="primary-btn" id="addClientBtn">+ Danışan ekle</button></div>
  <div class="client-filters" id="clientFilters"><button class="client-filter active" data-client-filter="all">Tümü</button><button class="client-filter" data-client-filter="R">Reklam</button><button class="client-filter" data-client-filter="B">Bireysel</button><button class="client-filter" data-client-filter="K">Kurum</button><button class="client-filter inactive-toggle" id="showInactive">Pasifleri göster</button></div>
@@ -281,14 +281,26 @@ function render(){
  $('excludedList').innerHTML=excluded.length?excluded.map(r=>`<div class="row-meta" style="padding:8px 1px;border-bottom:1px solid var(--line)">${esc(r.title)} · ${String(r.date||'').split('-').reverse().join('.')}</div>`).join(''):'<div class="row-meta" style="padding:8px 0">Hesap dışı kayıt bulunmuyor.</div>';
  renderClients();
 }
-function clientPeriodBounds(){const now=new Date();if(clientPeriod==='month')return{from:iso(new Date(now.getFullYear(),now.getMonth(),1)),to:iso(new Date(now.getFullYear(),now.getMonth()+1,0))};const day=(now.getDay()+6)%7;const monday=shift(now,-day);return{from:iso(monday),to:iso(shift(monday,6))}}
+function clientPeriodBounds(){
+ const now=new Date();
+ if(clientPeriod==='month')return{from:iso(new Date(now.getFullYear(),now.getMonth(),1)),to:iso(new Date(now.getFullYear(),now.getMonth()+1,0))};
+ if(clientPeriod==='year')return{from:iso(new Date(now.getFullYear(),0,1)),to:iso(new Date(now.getFullYear(),11,31))};
+ if(clientPeriod==='custom'){
+   const from=$('clientDateFrom').value,to=$('clientDateTo').value;
+   if(from&&to&&from<=to)return{from,to};
+   return{from:iso(new Date(now.getFullYear(),now.getMonth(),1)),to:iso(new Date(now.getFullYear(),now.getMonth()+1,0))};
+ }
+ const day=(now.getDay()+6)%7,monday=shift(now,-day);
+ return{from:iso(monday),to:iso(shift(monday,6))};
+}
 function renderClients(){
  const {from,to}=clientPeriodBounds();
- const periodRecords=records.filter(r=>r.date>=from&&r.date<=to&&(r.status==='scheduled'||r.status==='completed'));
+ const periodRecords=records.filter(r=>r.date>=from&&r.date<=to&&r.status==='completed');
  const activeKeys=new Set(periodRecords.map(r=>clientKey(r.name)));
  const sourceCounts={R:new Set(),B:new Set(),K:new Set()};
  periodRecords.forEach(r=>{if(sourceCounts[r.source])sourceCounts[r.source].add(clientKey(r.name))});
- $('clientPeriodTitle').textContent=clientPeriod==='week'?'BU HAFTA AKTİF DANIŞAN':'BU AY AKTİF DANIŞAN';
+ $('clientPeriodTitle').textContent=clientPeriod==='week'?'BU HAFTA DANIŞAN':clientPeriod==='month'?'BU AY DANIŞAN':clientPeriod==='year'?'BU YIL DANIŞAN':'SEÇİLEN TARİHTE DANIŞAN';
+ $('clientDateFields').classList.toggle('open',clientPeriod==='custom');
  $('activeClientTotal').textContent=activeKeys.size;
  $('countR').textContent=sourceCounts.R.size;$('countB').textContent=sourceCounts.B.size;$('countK').textContent=sourceCounts.K.size;
  document.querySelectorAll('[data-client-period]').forEach(b=>b.classList.toggle('active',b.dataset.clientPeriod===clientPeriod));
@@ -330,8 +342,9 @@ $('clientSave').onclick=()=>{
  records.forEach(r=>{if(clientKey(r.name)===clientKey(name)&&r.status==='scheduled'&&r.date>=iso(today)){r.source=source;r.gross=fee;r.share=source==='K'?clientShare(fee,{rate,rateMode}):0;r.title=source?`${source} - ${name} - ${r.sessionNumber||''} - ${fee}`:name}});
  persist();persistClients();$('clientModalBg').classList.remove('open');render();
 };
-document.querySelector('[data-client-period="week"]').onclick=()=>{clientPeriod='week';renderClients()};
-document.querySelector('[data-client-period="month"]').onclick=()=>{clientPeriod='month';renderClients()};
+document.querySelectorAll('[data-client-period]').forEach(b=>b.onclick=()=>{clientPeriod=b.dataset.clientPeriod;renderClients()});
+$('clientDateFrom').onchange=renderClients;
+$('clientDateTo').onchange=renderClients;
 $('clientFilters').addEventListener('click',e=>{const b=e.target.closest('[data-client-filter]');if(b){clientSourceFilter=b.dataset.clientFilter;renderClients()}});
 $('showInactive').onclick=()=>{showInactiveClients=!showInactiveClients;renderClients()};
 $('clientSearch').oninput=renderClients;
@@ -461,23 +474,28 @@ async function initGoogleCalendar() {
 }
 function parseTherapioEvent(ev) {
   const rawTitle=(ev.summary||'Başlıksız etkinlik').trim();
-  // Google Takvim bazı iptal kayıtlarını başlıkta "cancelled:" önekiyle döndürür.
-  const titleCancelled=/^cancelled\s*:\s*/i.test(rawTitle);
-  const title=rawTitle.replace(/^cancelled\s*:\s*/i,'').trim();
-  // Biçim: Kaynak - Danışan Ad Soyad - Seans No - Ücret
+  const googleCancelled=/^cancelled\s*:\s*/i.test(rawTitle);
+  const userCancelled=/^iptal\s*[-–—]\s*/i.test(rawTitle);
+  const title=rawTitle.replace(/^cancelled\s*:\s*/i,'').replace(/^iptal\s*[-–—]\s*/i,'').trim();
   const parts=title.split(/\s*[-–—]\s*/).map(x=>x.trim());
   const source=(parts[0]||'').toUpperCase();
-  const valid=['R','B','K'].includes(source)&&parts.length>=3&&!!parts[1]&&/^\d+$/.test(parts[2]);
-  const name=valid?parts[1].replace(/\s+/g,' ').trim():title;
-  const sessionNumber=valid?Number(parts[2]):null;
-  const feeText=valid&&parts.length>=4?parts.slice(3).join('').replace(/[^\d.,]/g,''):'';
+  const titleValid=['R','B','K'].includes(source)&&parts.length>=3&&!!parts[1]&&/^\d+$/.test(parts[2])&&!/^\d{1,2}[:.]\d{2}/.test(parts[1]);
+  const name=titleValid?parts[1].replace(/\s+/g,' ').trim():'';
+  const sessionNumber=titleValid?Number(parts[2]):null;
+  const feeText=titleValid&&parts.length>=4?parts.slice(3).join('').replace(/[^\d.,]/g,''):'';
   const gross=feeText?Number(feeText.replace(/\./g,'').replace(',','.')):0;
-  const startValue=ev.start&&(ev.start.dateTime||ev.start.date) || (ev.originalStartTime&&(ev.originalStartTime.dateTime||ev.originalStartTime.date));
+  const colorId=String(ev.colorId||'');
+  const isGrey=colorId==='8';
+  const isRed=colorId==='11';
+  const isCancelled=ev.status==='cancelled'||googleCancelled||userCancelled||isGrey;
+  // Sadece kırmızı (gerçekleşti) ve gri/iptal kayıtları işlenir.
+  const colorValid=isRed||isCancelled;
+  const startValue=ev.start&&(ev.start.dateTime||ev.start.date)||(ev.originalStartTime&&(ev.originalStartTime.dateTime||ev.originalStartTime.date));
   const startDate=startValue?new Date(startValue):new Date();
   const date=startValue&&ev.start&&ev.start.date?ev.start.date:(startValue&&ev.originalStartTime&&ev.originalStartTime.date?ev.originalStartTime.date:`${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2,'0')}-${String(startDate.getDate()).padStart(2,'0')}`);
-  const time=(ev.start&&ev.start.dateTime)|| (ev.originalStartTime&&ev.originalStartTime.dateTime)?`${String(startDate.getHours()).padStart(2,'0')}:${String(startDate.getMinutes()).padStart(2,'0')}`:'09:00';
-  const status=(ev.status==='cancelled'||titleCancelled)?'cancelled':(startDate.getTime()<Date.now()?'completed':'scheduled');
-  return{title:rawTitle,name,source:valid?source:'',sessionNumber,gross,date,time,status};
+  const time=(ev.start&&ev.start.dateTime)||(ev.originalStartTime&&ev.originalStartTime.dateTime)?`${String(startDate.getHours()).padStart(2,'0')}:${String(startDate.getMinutes()).padStart(2,'0')}`:'09:00';
+  const status=isCancelled?'cancelled':(isRed?'completed':'ignored');
+  return{title:rawTitle,name,source:titleValid?source:'',sessionNumber,gross,date,time,status,valid:titleValid&&colorValid,titleValid,colorId};
 }
 function cleanupNumberedDuplicateClients(){
  // Eski içe aktarımlarda "Ad Soyad - 12" biçiminde açılmış profilleri
@@ -508,11 +526,29 @@ function cleanupNumberedDuplicateClients(){
  persistClients();persist();
 }
 
+function cleanupInvalidCalendarImports(){
+  // Önceki sürümlerde normal takvim etkinliği olarak içe alınan kayıtları temizle.
+  const invalidNames=new Set();
+  records=records.filter(r=>{
+    if(!r.googleEventId) return true;
+    const parsed=parseTherapioEvent({summary:r.title||'',start:{dateTime:(r.date||'')+'T'+(r.time||'09:00')+':00'}});
+    if(parsed.titleValid) return true;
+    invalidNames.add(clientKey(r.name||''));
+    return false;
+  });
+  const stillUsed=new Set(records.map(r=>clientKey(r.name||'')));
+  clients=clients.filter(c=>{
+    const key=clientKey(c.name||'');
+    return !(invalidNames.has(key)&&!stillUsed.has(key)&&!['R','B','K'].includes(String(c.source||'').toUpperCase()));
+  });
+  persistClients();persist();
+}
+
 function ensureProfilesForRecordedClients(){
   const byKey=new Map(clients.map(c=>[clientKey(c.name),c]));
   records.forEach(r=>{
     const name=String(r.name||'').trim();
-    if(!name) return;
+    if(!name || r.status==='cancelled' || !['R','B','K'].includes(String(r.source||'').toUpperCase())) return;
     const key=clientKey(name);
     let profile=byKey.get(key);
     if(!profile){
@@ -531,7 +567,7 @@ function refreshLatestClientFees(){
   // Profil ücreti, takvimdeki en son ücret girilmiş seansın ücretidir.
   // Geçmiş seansların kendi gross/share kayıtlarına dokunulmaz.
   clients.forEach(c=>{
-    const latest=records.filter(r=>clientKey(r.name)===clientKey(c.name)&&r.googleEventId&&Number(r.gross)>0)
+    const latest=records.filter(r=>clientKey(r.name)===clientKey(c.name)&&r.googleEventId&&r.status!=='cancelled'&&Number(r.gross)>0)
       .sort((a,b)=>((b.date||'')+(b.time||'')).localeCompare((a.date||'')+(a.time||'')))[0];
     if(latest){c.fee=Number(latest.gross);c.lastFeeDate=latest.date;delete c.feeUpdatedAt}
   });
@@ -559,6 +595,11 @@ async function syncGoogleCalendar() {
       const existing = records.find(r => r.googleEventId === ev.id);
       if (!ev.start && !ev.originalStartTime && !existing) continue;
       const parsed = parseTherapioEvent(ev);
+      if (!parsed.valid) {
+        if(existing) records=records.filter(r=>r.googleEventId!==ev.id);
+        skipped++;
+        continue;
+      }
       if (!ev.start && !ev.originalStartTime && existing) { parsed.date=existing.date; parsed.time=existing.time; }
       if (existing) {
         existing.title = parsed.title;
@@ -570,7 +611,8 @@ async function syncGoogleCalendar() {
         existing.date = parsed.date;
         existing.time = parsed.time;
         existing.status = parsed.status;
-        if (!getClient(parsed.name) && parsed.source) {
+        existing.colorId = parsed.colorId;
+        if (parsed.status!=='cancelled' && !getClient(parsed.name) && parsed.source) {
           clients.push({ name: parsed.name, source: parsed.source, fee: parsed.gross || Number(existing.gross || 0), rate: 0, rateMode: 'percent' });
           persistClients();
         }
@@ -582,9 +624,9 @@ async function syncGoogleCalendar() {
         records.push({
           id: uid(), googleEventId: ev.id, title: parsed.title, name: parsed.name,
           source, sessionNumber: parsed.sessionNumber, date: parsed.date, time: parsed.time,
-          gross, share, status: parsed.status
+          gross, share, status: parsed.status, colorId: parsed.colorId
         });
-        if (!profile && parsed.source) {
+        if (!profile && parsed.source && parsed.status!=='cancelled') {
           clients.push({ name: parsed.name, source: parsed.source, fee: gross, rate: 0, rateMode: 'percent' });
           persistClients();
         }
@@ -665,6 +707,7 @@ calendarButton.onclick = () => {
   }
 };
 
+cleanupInvalidCalendarImports();
 cleanupNumberedDuplicateClients();
 ensureProfilesForRecordedClients();
 refreshLatestClientFees();
